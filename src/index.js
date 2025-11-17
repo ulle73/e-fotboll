@@ -10,7 +10,8 @@ import { main as buildPlayerStats } from "./esb/buildPlayerStats.js";
 const main = async () => {
   try {
     await runUnibetFetchMatches();
-    await Promise.all([fetchAllPlayers(), fetchRawMatches()]);
+    await fetchAllPlayers(); // Must complete before fetchRawMatches
+    await fetchRawMatches();
     await normalizeMatches();
     await buildPlayerStats();
   } catch (error) {
