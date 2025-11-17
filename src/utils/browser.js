@@ -6,7 +6,8 @@ let browser;
 export const getBrowser = async () => {
   if (!browser) {
     logger.step('Startar puppeteer-browser');
-    browser = await puppeteer.launch({ headless: true });
+    const puppeteerArgs = process.env.PUPPETEER_INFO ? process.env.PUPPETEER_INFO.split(' ') : [];
+    browser = await puppeteer.launch({ headless: true, args: puppeteerArgs });
   }
   return browser;
 };
