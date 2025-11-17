@@ -18,8 +18,30 @@ jobs:
           node-version: '20' # Eller den version du använder
       - name: Install dependencies
         run: npm ci
+
+      - name: Install Chrome deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgbm1 \
+            libnss3 \
+            libatk-bridge2.0-0 \
+            libx11-xcb1 \
+            libxcb-dri3-0 \
+            libxcb1 \
+            libxdamage1 \
+            libxfixes3 \
+            libxcomposite1 \
+            libxrandr2 \
+            libxi6 \
+            libcups2 \
+            libxkbcommon0 \
+            libdrm2 \
+            libasound2t64
+
       - name: Run Nightly Update
-        run: node src/index.js
         env:
+          PUPPETEER_INFO: "--no-sandbox --disable-setuid-sandbox --disable-dev-shm-usage --no-zygote --no-first-run"
           MONGODB_URI: ${{ secrets.MONGODB_URI }}
           # Andra miljövariabler som behövs
+        run: node src/index.js
