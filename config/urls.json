@@ -1,0 +1,19 @@
+{
+  "baseUrl": "https://football.esportsbattle.com/en",
+  "pages": {
+    "participantsList": "https://football.esportsbattle.com/en/participants?page={page}",
+    "participantProfile": "https://football.esportsbattle.com/en/participants/{participantId}",
+    "participantCompare": "https://football.esportsbattle.com/en/participants/{participantId}/compare?compare_with={compareWithId}&page={page}"
+  },
+  "api": {
+    "participantsTournaments": "https://football.esportsbattle.com/api/participants/{participantId}/tournaments?page={page}",
+    "tournamentResults": "https://football.esportsbattle.com/api/tournaments/{tournamentId}/results",
+    "tournamentMatches": "https://football.esportsbattle.com/api/tournaments/{tournamentId}/matches",
+    "leagues": "https://football.esportsbattle.com/api/leagues",
+    "locations": "https://football.esportsbattle.com/api/locations",
+    "tournaments": "https://football.esportsbattle.com/api/tournaments?page={page}&dateFrom={dateFrom}&dateTo={dateTo}"
+  },
+  "unibet": {
+    "startingWithin": "https://eu1.offering-api.kambicdn.com/offering/v2018/ubse/listView/all/all/all/all/starting-within.json"
+  }
+}

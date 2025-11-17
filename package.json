@@ -1,0 +1,19 @@
+{
+  "name": "e-fotboll",
+  "version": "1.0.0",
+  "description": "EsportsBattle over/under scraper and EV bot (work in progress)",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node src/index.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "dotenv": "^17.2.3",
+    "mongodb": "^7.0.0",
+    "puppeteer": "^24.30.0"
+  }
+}
