@@ -2,13 +2,17 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { nowIso, pathRelativeToRoot, readJson, writeJson } from './utils.js';
 import * as logger from '../utils/logger.js';
-// import { getDb, closeDb } from '../db/mongoClient.js';
+import { getDb, closeDb } from '../db/mongoClient.js';
+
+// ---------------------------------
+// INFO url: (ingen extern URL; läser lokalt från data/esb/normalized_matches.json)
+// ---------------------------------
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const isMain = process.argv[1] && path.resolve(process.argv[1]) === __filename;
 
-const NORMALIZED_PATH = pathRelativeToRoot('data', 'esb', 'normalized_matches.json');
+
 const OUTPUT_PATH = pathRelativeToRoot('data', 'esb', 'player_stats.json');
 
 const normalizeModeKey = (modeRaw) => {
@@ -117,9 +121,10 @@ const buildStats = (normalized) => {
 };
 
 export const main = async () => {
-  const matches = await readJson(NORMALIZED_PATH, []);
+  const db = await getDb();
+  const matches = await db.collection('esb_matches').find({ source: 'esportsbattle' }).toArray();
   if (!matches.length) {
-    throw new Error(`Inga matcher i ${NORMALIZED_PATH}. Kör normalizeMatches först.`);
+    throw new Error(`Inga matcher hittades i DB (esb_matches). Kör normalizeMatches först.`);
   }
 
   const stats = buildStats(matches);
@@ -127,10 +132,20 @@ export const main = async () => {
 
   await writeJson(OUTPUT_PATH, stats);
 
-  // const db = await getDb();
-  // await db.collection('player_stats').deleteMany({});
-  // await db.collection('player_stats').insertMany(stats, { ordered: false });
-  // await closeDb();
+ 
+  try {
+    const col = db.collection('player_stats');
+    await col.deleteMany({ source: 'esportsbattle' });
+    const docs = stats.map((s) => ({ ...s, source: 'esportsbattle' }));
+    if (docs.length) {
+      await col.insertMany(docs, { ordered: false });
+      logger.success(`Sparade ${docs.length} player_stats i DB`);
+    } else {
+      logger.info('Inga player_stats att spara i DB');
+    }
+  } finally {
+    await closeDb();
+  }
 
   logger.success(`Sparade player_stats till ${OUTPUT_PATH}`);
 };

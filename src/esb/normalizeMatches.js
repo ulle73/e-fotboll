@@ -8,32 +8,19 @@ import {
   readJson,
   valueFromCandidates,
   writeJson,
+  runWithConcurrency,
 } from './utils.js';
 import * as logger from '../utils/logger.js';
-// import { getDb, closeDb } from '../db/mongoClient.js';
+import { getDb, closeDb } from '../db/mongoClient.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const isMain = process.argv[1] && path.resolve(process.argv[1]) === __filename;
 
-const RAW_ROOT = pathRelativeToRoot('data', 'esb', 'raw_matches');
+
 const OUTPUT_PATH = pathRelativeToRoot('data', 'esb', 'normalized_matches.json');
 
-const listRawFiles = async () => {
-  const entries = [];
-  const playerDirs = await fs.readdir(RAW_ROOT, { withFileTypes: true });
-  for (const dir of playerDirs) {
-    if (!dir.isDirectory()) continue;
-    const dirPath = path.join(RAW_ROOT, dir.name);
-    const files = await fs.readdir(dirPath, { withFileTypes: true });
-    for (const file of files) {
-      if (file.isFile() && file.name.endsWith('.json')) {
-        entries.push(path.join(dirPath, file.name));
-      }
-    }
-  }
-  return entries;
-};
+
 
 const parseScoreString = (value) => {
   if (typeof value !== 'string') return null;
@@ -180,6 +167,7 @@ const normalizeMatch = (match, context) => {
 
   return {
     esbMatchId,
+    source: 'esportsbattle',
     date: dateValue ?? null,
     mode,
     kickoff: kickoffIso,
@@ -215,29 +203,35 @@ const deduplicateMatches = (rawEntries) => {
 };
 
 export const main = async () => {
-  const files = await listRawFiles();
-  logger.step(`Läser ${files.length} råfiler från ${RAW_ROOT}`);
+  const db = await getDb();
+  const rawMatchesCollection = db.collection('esb_raw_matches');
+  const rawMatchDocuments = await rawMatchesCollection.find({ source: 'esportsbattle' }).toArray();
+  logger.step(`Läser ${rawMatchDocuments.length} råa matchdokument från DB`);
 
-  const rawEntries = [];
-  for (const filePath of files) {
-    const data = await readJson(filePath, null);
-    if (!data) {
-      logger.error(`Kunde inte läsa ${filePath}, hoppar över`);
-      continue;
-    }
-    const relativePath = path.relative(projectRoot, filePath);
-    rawEntries.push({ filePath, relativePath, data });
-  }
+  const rawEntries = rawMatchDocuments.map((doc) => ({
+    filePath: doc.meta?.filePath || 'N/A', // Keep for compatibility, though not used for reading
+    relativePath: doc.meta?.filePath || 'N/A', // Keep for compatibility, though not used for reading
+    data: doc,
+  }));
 
   const normalized = deduplicateMatches(rawEntries);
   logger.step(`Normaliserat antal matcher: ${normalized.length}`);
 
   await writeJson(OUTPUT_PATH, normalized);
 
-  // const db = await getDb();
-  // await db.collection('esb_matches').deleteMany({});
-  // await db.collection('esb_matches').insertMany(normalized, { ordered: false });
-  // await closeDb();
+ 
+  try {
+    const col = db.collection('esb_matches');
+    await col.deleteMany({ source: 'esportsbattle' });
+    if (normalized.length) {
+      await col.insertMany(normalized, { ordered: false });
+      logger.success(`Sparade ${normalized.length} matcher i DB (esb_matches)`);
+    } else {
+      logger.info('Inga matcher att spara i DB');
+    }
+  } finally {
+    await closeDb();
+  }
 
   logger.success(`Sparade normaliserade matcher till ${OUTPUT_PATH}`);
 };

@@ -54,3 +54,21 @@ export const valueFromCandidates = (obj, candidates, fallback = undefined) => {
   }
   return fallback;
 };
+
+export const runWithConcurrency = async (tasks, limit) => {
+  const results = [];
+  const running = [];
+  for (const task of tasks) {
+    const promise = task();
+    running.push(promise);
+    promise.then((result) => {
+      results.push(result);
+      running.splice(running.indexOf(promise), 1);
+    });
+    if (running.length >= limit) {
+      await Promise.race(running);
+    }
+  }
+  await Promise.all(running);
+  return results;
+};

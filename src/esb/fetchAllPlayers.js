@@ -1,10 +1,16 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { ensureDir, pathRelativeToRoot, replacePlaceholders, slugify, writeJson } from './utils.js';
+import { ensureDir, pathRelativeToRoot, replacePlaceholders, slugify, writeJson, runWithConcurrency } from './utils.js';
 import * as logger from '../utils/logger.js';
 import { fetchJsonWithPuppeteer, shutdownPuppeteer } from './puppeteerFetch.js';
-// import { getDb, closeDb } from '../db/mongoClient.js';
+import { getDb, closeDb } from '../db/mongoClient.js';
+
+// ---------------------------------
+// INFO url: https://football.esportsbattle.com/api/participants?page={page}
+// INFO url: https://football.esportsbattle.com/api/participants/{participantId}
+// INFO url: https://football.esportsbattle.com/api/participants/{participantId}/compare?compare_with={compareWithId}&page={page}
+// ---------------------------------
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -111,28 +117,38 @@ export const main = async () => {
   await ensureDir(path.dirname(OUTPUT_PATH));
 
   const basePlayers = await fetchParticipants(urls);
-  const players = [];
-  for (const base of basePlayers) {
+  const playerDetailTasks = basePlayers.map((base) => async () => {
     try {
       const detailed = await fetchParticipantDetail(base, urls);
-      // Spara exakt API-svaret (detaljen) om den finns, annars basposten.
-      players.push(detailed?.detail || detailed || base);
+      return detailed?.detail || detailed || base;
     } catch (err) {
       logger.error(`Kunde inte hämta profil för ${base.nickname || base.id}: ${err.message}`);
-      players.push(base);
+      return base;
     }
-  }
+  });
+
+  const players = await runWithConcurrency(playerDetailTasks, 5);
 
   logger.step(`Sparar ${players.length} spelare till ${OUTPUT_PATH} (direkt API-respons per spelare)`);
   await writeJson(OUTPUT_PATH, players);
 
-  // const db = await getDb();
-  // await db.collection('esb_players').deleteMany({});
-  // await db.collection('esb_players').insertMany(players, { ordered: false });
-  // await closeDb();
+  const db = await getDb();
+  try {
+    const col = db.collection('esb_players');
+    await col.deleteMany({ source: 'esportsbattle' });
+    const docs = players.map((p) => ({ ...p, source: p.source ?? 'esportsbattle' }));
+    if (docs.length) {
+      await col.insertMany(docs, { ordered: false });
+      logger.success(`Sparade ${docs.length} spelare i DB (esb_players)`);
+    } else {
+      logger.info('Inga spelare att spara i DB');
+    }
+  } finally {
+    // await closeDb(); // Moved to index.js
+  }
 
   logger.success('Klar med fetchAllPlayers');
-  await shutdownPuppeteer();
+  // await shutdownPuppeteer(); // Moved to index.js
 };
 
 if (isMain) {

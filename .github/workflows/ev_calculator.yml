@@ -1,0 +1,25 @@
+name: Unibet EV Calculator
+
+on:
+  schedule:
+    # Kör var 15:e minut
+    - cron: '*/15 * * * *'
+  workflow_dispatch: # Tillåter manuell körning
+
+jobs:
+  run_ev_calculator:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20' # Eller den version du använder
+      - name: Install dependencies
+        run: npm ci # Eller npm install om du inte har package-lock.json
+      - name: Run EV Calculator
+        run: node src/ev_calculator.js
+        env:
+          MONGODB_URI: ${{ secrets.MONGODB_URI }} # Se till att du har detta som en GitHub Secret
+          # Andra miljövariabler som behövs för API-nycklar etc.
