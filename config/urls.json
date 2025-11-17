@@ -1,9 +1,9 @@
 {
   "baseUrl": "https://football.esportsbattle.com/en",
   "pages": {
-    "participantsList": "https://football.esportsbattle.com/en/participants?page={page}",
-    "participantProfile": "https://football.esportsbattle.com/en/participants/{participantId}",
-    "participantCompare": "https://football.esportsbattle.com/en/participants/{participantId}/compare?compare_with={compareWithId}&page={page}"
+    "participantsList": "https://football.esportsbattle.com/api/participants?page={page}",
+    "participantProfile": "https://football.esportsbattle.com/api/participants/{participantId}",
+    "participantCompare": "https://football.esportsbattle.com/api/participants/{participantId}/compare?compare_with={compareWithId}&page={page}"
   },
   "api": {
     "participantsTournaments": "https://football.esportsbattle.com/api/participants/{participantId}/tournaments?page={page}",
