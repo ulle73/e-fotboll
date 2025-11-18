@@ -5,6 +5,7 @@ import { runUnibetFetchMatches } from "./services/unibetFetchMatches.js";
 import bot from './telegramBot.js'; // Importera bot-instansen
 import { calculateEvForMatch } from './services/evCalculatorService.js'; // Importera den nya EV-tjänsten
 import { formatLocalDateTime } from './utils/time.js';
+import { buildUnibetEventUrl } from './utils/unibetLinks.js';
 
 // TODO: Implement EV calculation logic here
 const calculateEvPerMatch = async () => {
@@ -49,6 +50,7 @@ const calculateEvPerMatch = async () => {
     const awayName = match.event.awayName;
     const kickoffUtcIso = new Date(match.event.start).toISOString();
     const kickoffDate = new Date(match.event.start);
+    const eventUrl = buildUnibetEventUrl(matchId);
     const asPercent = (value) => `${((value ?? 0) * 100).toFixed(2)}%`;
     const formatTrueOdds = (prob) => {
       if (!prob || prob <= 0) return 'N/A';
@@ -151,6 +153,10 @@ const calculateEvPerMatch = async () => {
     }
 
     matchSummaryMessage += sections.join('\n-------------------------\n\n') + '\n\n-------------------------\n';
+
+    if (eventUrl) {
+      matchSummaryMessage += `🔗 ${eventUrl}\n`;
+    }
 
     await bot.sendMessage(match.chatId || process.env.TELEGRAM_CHAT_ID, matchSummaryMessage, { parse_mode: 'Markdown' });
   }
