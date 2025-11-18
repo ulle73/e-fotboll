@@ -98,28 +98,7 @@ const extractArray = (payload, primaryKey) => {
   return [];
 };
 
-const fetchParticipantTournaments = async (player, urls) => {
-  const template = urls.api?.participantsTournaments;
-  if (!template) throw new Error('participantsTournaments saknas i urls.json');
 
-  const participantKey = player?.slug || player?.nickname || player?.id;
-  if (!participantKey) throw new Error('Player saknar slug/nickname/id för tournaments-URL');
-
-  const tournaments = [];
-  const maxPages = Math.min(MAX_PAGES, RECENT_TOURNAMENT_PAGES);
-  for (let page = 1; page <= maxPages; page += 1) {
-    const url = replacePlaceholders(template, { participantId: participantKey, page });
-    logger.info(`Hämtar tournaments för spelare ${participantKey}, sida ${page}: ${url}`);
-    const payload = await fetchJson(url);
-    const pageItems = extractArray(payload, 'tournaments');
-    if (!pageItems.length) {
-      logger.info(`Inga fler tournament-sidor för spelare ${participantKey}, stannar.`);
-      break;
-    }
-    tournaments.push(...pageItems);
-  }
-  return tournaments;
-};
 
 const pickMatches = (payload) => {
   const candidates = [
@@ -228,78 +207,131 @@ const processPlayer = async (player, urls, sinceTs, db) => {
   const knownIds = await loadKnownMatchIds(player, db);
   const seenIds = new Set(knownIds);
   let fetchedMatches = 0;
-  let tournaments = [];
   const allRawRecords = []; // New array to collect records
-  try {
-    tournaments = await fetchParticipantTournaments(player, urls);
-  } catch (err) {
-    logger.error(`Kunde inte hämta tournaments för ${player.nickname}: ${err.message}`);
-    return;
-  }
+
+  const template = urls.api?.participantsTournaments;
+  if (!template) throw new Error('participantsTournaments saknas i urls.json');
+
+  const participantKey = player?.slug || player?.nickname || player?.id;
+  if (!participantKey) throw new Error('Player saknar slug/nickname/id för tournaments-URL');
 
   logger.step(
-    `Spelare ${player.nickname} (${player.slug || player.id}) har ${tournaments.length} tournaments (paginerat)`,
+    `Startar bearbetning för spelare ${player.nickname} (${player.slug || player.id})`,
   );
 
-  const tournamentMatchTasks = tournaments.map((tournament, i) => async () => {
-    const tournamentId =
-      tournament?.tournamentId ?? tournament?.id ?? tournament?._id ?? tournament?.tournament_id;
-    if (!tournamentId) {
-      logger.error(`Hittade inget tournamentId för index ${i} (spelare ${player.nickname}), hoppar över`);
-      return null; // Return null for skipped tournaments
+  let stopProcessingPlayer = false;
+  const maxTournamentPages = Math.min(MAX_PAGES, RECENT_TOURNAMENT_PAGES);
+
+  for (let page = 1; page <= maxTournamentPages; page += 1) {
+    if (stopProcessingPlayer || fetchedMatches >= MAX_MATCHES_PER_PLAYER) {
+      logger.info(
+        `Har redan hämtat ${fetchedMatches} matcher för ${player.nickname}, stoppar fler turneringar (tidig avbrytning på sidnivå).`,
+      );
+      break;
     }
 
+    const tournamentPageUrl = replacePlaceholders(template, { participantId: participantKey, page });
+    logger.info(`Hämtar tournaments för spelare ${participantKey}, sida ${page}: ${tournamentPageUrl}`);
+    let tournamentsOnPage = [];
     try {
-      const matchPayload = await fetchTournamentMatches(tournamentId, urls);
-      const recentMatches = [];
-
-      for (const match of matchPayload.matches) {
-        const id = getMatchId(match);
-        const ts = toTs(getMatchDate(match));
-        if (sinceTs && ts && ts < sinceTs) continue;
-        if (id !== null && id !== undefined) {
-          const key = String(id);
-          if (seenIds.has(key)) continue;
-          seenIds.add(key);
-        }
-        recentMatches.push(match);
-      }
-
-      if (!recentMatches.length) {
-        logger.info(`Inga nya matcher hittades för tournament ${tournamentId} (spelare ${player.nickname}).`);
-        return null; // Return null for no new matches
-      }
-
-      const limitedMatches = recentMatches.slice(0, MAX_MATCHES_PER_PLAYER - fetchedMatches);
-      fetchedMatches += limitedMatches.length;
-      const filteredSinceIso = new Date(sinceTs).toISOString();
-      const record = await saveRawMatches(
-        player,
-        tournament,
-        { ...matchPayload },
-        i,
-        limitedMatches,
-        filteredSinceIso,
-      );
-      logger.success(
-        `Sparade ${limitedMatches.length} nya matcher: ${record.meta.filePath} (totalt ${fetchedMatches} för ${player.nickname})`,
-      );
-      return record;
+      const payload = await fetchJson(tournamentPageUrl);
+      tournamentsOnPage = extractArray(payload, 'tournaments');
     } catch (err) {
-      logger.error(
-        `Kunde inte hämta/spara matcher för tournament ${tournamentId} (spelare ${player.nickname}): ${err.message}`,
-      );
-      return null; // Return null on error
+      logger.error(`Kunde inte hämta tournaments för spelare ${participantKey}, sida ${page}: ${err.message}`);
+      continue;
     }
-  });
 
-  const results = await runWithConcurrency(tournamentMatchTasks, 3);
-  allRawRecords.push(...results.filter(Boolean)); // Collect valid records
+    if (!tournamentsOnPage.length) {
+      logger.info(`Inga fler tournament-sidor för spelare ${participantKey}, stannar.`);
+      break;
+    }
 
-  if (allRawRecords.length > 0) {
+    // Process tournaments on this page
+    for (let i = 0; i < tournamentsOnPage.length; i += 1) {
+      if (stopProcessingPlayer || fetchedMatches >= MAX_MATCHES_PER_PLAYER) {
+        logger.info(
+          `Har redan hämtat ${fetchedMatches} matcher för ${player.nickname}, stoppar fler turneringar (tidig avbrytning på turneringsnivå).`,
+        );
+        break;
+      }
+
+      const tournament = tournamentsOnPage[i];
+      const tournamentId =
+        tournament?.tournamentId ?? tournament?.id ?? tournament?._id ?? tournament?.tournament_id;
+      if (!tournamentId) {
+        logger.error(`Hittade inget tournamentId för index ${i} (spelare ${player.nickname}), hoppar över`);
+        continue;
+      }
+
+      try {
+        const matchPayload = await fetchTournamentMatches(tournamentId, urls);
+        const recentMatches = [];
+        let foundOldMatchInTournament = false;
+
+        for (const match of matchPayload.matches) {
+          const id = getMatchId(match);
+          const ts = toTs(getMatchDate(match));
+
+          // Om matchen är äldre än sinceTs, eller redan sedd, sluta bearbeta fler matcher i denna turnering
+          if (ts && ts < sinceTs) {
+            logger.info(`Match ${id} för tournament ${tournamentId} är äldre än sinceTs, stoppar bearbetning av denna turnering.`);
+            foundOldMatchInTournament = true;
+            stopProcessingPlayer = true; // Signalera att vi kan sluta bearbeta spelaren också
+            break;
+          }
+          if (id !== null && id !== undefined) {
+            const key = String(id);
+            if (seenIds.has(key)) {
+              logger.info(`Match ${id} för tournament ${tournamentId} har redan setts, stoppar bearbetning av denna turnering.`);
+              foundOldMatchInTournament = true;
+              stopProcessingPlayer = true; // Signalera att vi kan sluta bearbeta spelaren också
+              break;
+            }
+            seenIds.add(key);
+          }
+          recentMatches.push(match);
+        }
+
+        if (foundOldMatchInTournament) {
+          continue; // Gå till nästa turnering om vi hittade en gammal match och ska sluta
+        }
+
+        if (!recentMatches.length) {
+          logger.info(`Inga nya matcher hittades för tournament ${tournamentId} (spelare ${player.nickname}).`);
+          continue;
+        }
+
+        const limitedMatches = recentMatches.slice(0, MAX_MATCHES_PER_PLAYER - fetchedMatches);
+        fetchedMatches += limitedMatches.length;
+        const filteredSinceIso = new Date(sinceTs).toISOString();
+        const record = await saveRawMatches(
+          player,
+          tournament,
+          { ...matchPayload },
+          i,
+          limitedMatches,
+          filteredSinceIso,
+        );
+        allRawRecords.push(record); // Collect the record
+        logger.success(
+          `Sparade ${limitedMatches.length} nya matcher: ${record.meta.filePath} (totalt ${fetchedMatches} för ${player.nickname})`,
+        );
+      } catch (err) {
+        logger.error(
+          `Kunde inte hämta/spara matcher för tournament ${tournamentId} (spelare ${player.nickname}): ${err.message}`,
+        );
+        continue;
+      }
+    }
+  }
+
+  // Apply MAX_MATCHES_PER_PLAYER limit to the collected raw records
+  const finalRawRecords = allRawRecords.slice(0, MAX_MATCHES_PER_PLAYER);
+
+  if (finalRawRecords.length > 0) {
     try {
-      await db.collection('esb_raw_matches').insertMany(allRawRecords, { ordered: false });
-      logger.success(`Sparade ${allRawRecords.length} rå-matcher till DB för ${player.nickname}`);
+      await db.collection('esb_raw_matches').insertMany(finalRawRecords, { ordered: false });
+      logger.success(`Sparade ${finalRawRecords.length} rå-matcher till DB för ${player.nickname}`);
     } catch (err) {
       logger.error(`Kunde inte spara rå-matcher till DB för ${player.nickname}: ${err.message}`);
     }

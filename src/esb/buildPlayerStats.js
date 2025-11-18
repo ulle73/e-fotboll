@@ -66,6 +66,11 @@ const weightedAverage = (weights, slices) => {
 };
 
 const buildStats = (normalized) => {
+  // Filtrera bort matcher som inte har resultat (dvs. planerade matcher)
+  const completedMatches = normalized.filter(
+    (match) => match.goalsHome !== null && match.goalsAway !== null,
+  );
+
   const map = new Map();
 
   const pushMatch = (playerNick, modeRaw, goalsFor, goalsAgainst, kickoff) => {
@@ -76,7 +81,7 @@ const buildStats = (normalized) => {
     map.set(key, entry);
   };
 
-  normalized.forEach((match) => {
+  completedMatches.forEach((match) => {
     const { homePlayerNick, awayPlayerNick, goalsHome, goalsAway, mode, kickoff, date } = match;
     const ts = toTimestamp(kickoff || date);
     pushMatch(homePlayerNick, mode, toNumberSafe(goalsHome), toNumberSafe(goalsAway), ts);

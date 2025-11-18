@@ -41,6 +41,10 @@ export const error = (message, ...args) => {
     console.error(`${colors.fg.red}%s${colors.reset}`, message, ...args);
 };
 
+export const warn = (message, ...args) => {
+    console.warn(`${colors.fg.yellow}%s${colors.reset}`, message, ...args);
+};
+
 export const step = (message) => {
     console.log(`\n${colors.fg.yellow}▶ %s${colors.reset}\n`, message);
 };

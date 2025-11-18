@@ -187,6 +187,10 @@ const deduplicateMatches = (rawEntries) => {
     const matches = extractMatchesFromRaw(entry.data);
     matches.forEach((match, idx) => {
       const normalized = normalizeMatch(match, entry);
+      // Filtrera bort matcher som inte har resultat (dvs. planerade matcher)
+      if (normalized.goalsHome === null || normalized.goalsAway === null) {
+        return;
+      }
       const key = `${normalized.date}|${normalized.mode}|${normalized.homePlayerNick}|${normalized.awayPlayerNick}|${normalized.goalsHome}|${normalized.goalsAway}`;
       const existing = map.get(key);
       if (existing) {
