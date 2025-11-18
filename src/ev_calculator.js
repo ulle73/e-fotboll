@@ -32,15 +32,6 @@ const calculateEvPerMatch = async () => {
   const allMatchesInSnapshot = latestSnapshot.matches;
   const upcomingMatches = allMatchesInSnapshot.filter(match => {
     const matchStartTime = new Date(match.event.start); // Detta är redan ett UTC Date-objekt
-
-    logger.info(`[DEBUG] Match: ${match.event.name}`);
-    logger.info(`[DEBUG] Match Start Time (UTC): ${matchStartTime.toISOString()}`);
-    logger.info(`[DEBUG] Current Time (UTC): ${nowUtc.toISOString()}`);
-    logger.info(`[DEBUG] 20 Minutes From Now (UTC): ${twentyMinutesFromNowUtc.toISOString()}`);
-    logger.info(`[DEBUG] Condition 1 (matchStartTime > nowUtc): ${matchStartTime > nowUtc}`);
-    logger.info(`[DEBUG] Condition 2 (matchStartTime <= twentyMinutesFromNowUtc): ${matchStartTime <= twentyMinutesFromNowUtc}`);
-    logger.info(`[DEBUG] Combined Condition: ${matchStartTime > nowUtc && matchStartTime <= twentyMinutesFromNowUtc}`);
-
     return matchStartTime > nowUtc && matchStartTime <= twentyMinutesFromNowUtc;
   });
 
@@ -55,6 +46,23 @@ const calculateEvPerMatch = async () => {
     const matchId = match.event.id;
     const homeName = match.event.homeName;
     const awayName = match.event.awayName;
+    const kickoffUtcIso = new Date(match.event.start).toISOString();
+    const kickoffDate = new Date(match.event.start);
+    const asPercent = (value) => `${((value ?? 0) * 100).toFixed(2)}%`;
+    const formatTrueOdds = (prob) => {
+      if (!prob || prob <= 0) return 'N/A';
+      return (1 / prob).toFixed(2);
+    };
+    const shouldShowAllEv = false; // Sätt till true om du vill se även negativa EV
+    const evThreshold = 0; // Använd 0 för alla positiva, 0.05 för >5% etc.
+    const formatKickoff = (date) => {
+      const yyyy = date.getUTCFullYear();
+      const mm = String(date.getUTCMonth() + 1).padStart(2, '0');
+      const dd = String(date.getUTCDate()).padStart(2, '0');
+      const hh = String(date.getUTCHours()).padStart(2, '0');
+      const min = String(date.getUTCMinutes()).padStart(2, '0');
+      return `${yyyy}-${mm}-${dd} - ${hh}:${min}`;
+    };
 
     // Extrahera bara smeknamnet från t.ex. "Czechia (Kodak)" -> "Kodak"
     const homePlayerNick = homeName.match(/\((.*?)\)/)?.[1] || homeName;
@@ -67,9 +75,6 @@ const calculateEvPerMatch = async () => {
       continue;
     }
 
-    // Logga hela odds-objektet för att se strukturen
-    logger.info(`[DEBUG] Odds object for match ${matchId}: ${JSON.stringify(odds.odds)}`);
-
     // Hämta spelarstatistik för hemma- och bortalag
     const homePlayerStats = await playerStatsCollection.findOne({ playerNick: homePlayerNick });
     const awayPlayerStats = await playerStatsCollection.findOne({ playerNick: awayPlayerNick });
@@ -79,7 +84,8 @@ const calculateEvPerMatch = async () => {
       continue;
     }
 
-    logger.info(`Bearbetar match: ${homeName} vs ${awayName} (Kickoff: ${match.event.start})`);
+    logger.info(`⚽ ${homeName} vs ${awayName}`);
+    logger.info(`🕒 Kickoff (UTC): ${kickoffUtcIso}`);
     
     const evResults = calculateEvForMatch(match, odds, homePlayerStats, awayPlayerStats);
 
@@ -88,46 +94,71 @@ const calculateEvPerMatch = async () => {
       continue;
     }
 
-    let matchSummaryMessage = `*Match: ${homeName} vs ${awayName}*
-Kickoff: ${match.event.start}
-`;
-    let foundPositiveEv = false; // Används för att markera om någon positiv EV hittades
+    const sortedResults = [...evResults].sort((a, b) => (Number(a.line) || 0) - (Number(b.line) || 0));
 
-    for (const result of evResults) {
+    let matchSummaryMessage = `⚽️  *${homeName} vs ${awayName}*  ⚽️
+
+⏰  ${formatKickoff(kickoffDate)}
+
+-------------------------
+
+`;
+    const sections = [];
+
+    sortedResults.forEach((result) => {
       const { line, overOdds, underOdds, probOver, probUnder, evOver, evUnder } = result;
+      const probOverPct = asPercent(probOver);
+      const probUnderPct = asPercent(probUnder);
+      const evOverPct = asPercent(evOver);
+      const evUnderPct = asPercent(evUnder);
+      const trueOverOdds = formatTrueOdds(probOver);
+      const trueUnderOdds = formatTrueOdds(probUnder);
 
-      // Logga linan och dess odds
-      logger.info(`[DEBUG] Linje ${line} Mål: Över ${line} Odds: ${overOdds}, Under ${line} Odds: ${underOdds}`);
+      const plays = [];
 
-      let lineMessage = `
---- Linje ${line} Mål ---
-`;
-      lineMessage += `Unibet Odds: Över ${line}: ${overOdds}, Under ${line}: ${underOdds}
-`;
-      lineMessage += `Poisson Sannolikhet: Över ${line}: ${(probOver * 100).toFixed(2)}%, Under ${line}: ${(probUnder * 100).toFixed(2)}%
-`;
-      lineMessage += `EV Över ${line}: ${(evOver * 100).toFixed(2)}%
-`;
-      lineMessage += `EV Under ${line}: ${(evUnder * 100).toFixed(2)}%
-`;
-
-      if (evOver > 0.05) { // Exempel: Positiv EV över 5%
-        lineMessage += `🚨 HÖG EV PÅ ÖVER ${line} MÅL! 🚨`;
-        foundPositiveEv = true;
-      } else if (evUnder > 0.05) {
-        lineMessage += `🚨 HÖG EV PÅ UNDER ${line} MÅL! 🚨`;
-        foundPositiveEv = true;
+      if (shouldShowAllEv || evOver > evThreshold) {
+        plays.push({
+          label: `⬆️  Over ${line}`,
+          odds: overOdds,
+          trueOdds: trueOverOdds,
+          ev: evOverPct,
+          highlight: evOver > evThreshold,
+        });
       }
-      matchSummaryMessage += lineMessage;
+
+      if (shouldShowAllEv || evUnder > evThreshold) {
+        plays.push({
+          label: `⬇️  Under ${line}`,
+          odds: underOdds,
+          trueOdds: trueUnderOdds,
+          ev: evUnderPct,
+          highlight: evUnder > evThreshold,
+        });
+      }
+
+      if (!plays.length) return;
+
+      plays.forEach((play) => {
+        const section = `${play.label}
+🎲  Odds: ${play.odds}
+🎯  True odds: ${play.trueOdds}
+💰  EV: ${play.ev}
+`;
+        sections.push(section);
+
+        // Vill du logga även negativa, byt shouldShowAllEv till true ovan
+        logger.info(section.replace(/\n+$/, ''));
+      });
+    });
+
+    if (!sections.length) {
+      logger.info(`Ingen positiv EV hittades för ${homeName} vs ${awayName}.`);
+      continue;
     }
 
-    // Skicka alltid meddelandet, men markera om det finns positiv EV
-    if (foundPositiveEv) {
-      await bot.sendMessage(match.chatId || process.env.TELEGRAM_CHAT_ID, matchSummaryMessage, { parse_mode: 'Markdown' });
-    } else {
-      logger.info(`Ingen signifikant EV hittades för ${homeName} vs ${awayName} på någon linje. Skickar ändå meddelande med alla resultat.`);
-      await bot.sendMessage(match.chatId || process.env.TELEGRAM_CHAT_ID, matchSummaryMessage, { parse_mode: 'Markdown' });
-    }
+    matchSummaryMessage += sections.join('\n-------------------------\n\n') + '\n\n-------------------------\n';
+
+    await bot.sendMessage(match.chatId || process.env.TELEGRAM_CHAT_ID, matchSummaryMessage, { parse_mode: 'Markdown' });
   }
 
   logger.info("EV calculation per match completed.");
