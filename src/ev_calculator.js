@@ -25,10 +25,11 @@ const calculateEvPerMatch = async () => {
   const unibetMatchesCollection = db.collection('unibet-matches');
   const unibetOddsCollection = db.collection('unibet-odds');
   const playerStatsCollection = db.collection('player_stats');
+  const UPCOMING_WINDOW_MINUTES = 10;
 
   const now = new Date();
   const nowUtc = new Date(now.toUTCString()); // Konvertera aktuell lokal tid till UTC Date-objekt
-  const twentyMinutesFromNowUtc = new Date(nowUtc.getTime() + 8 * 60 * 1000); // Lägg till 20 minuter till UTC-tid
+  const windowEndUtc = new Date(nowUtc.getTime() + UPCOMING_WINDOW_MINUTES * 60 * 1000);
 
   // Hämta den senaste snapshoten från unibet_matches
   const latestSnapshot = await unibetMatchesCollection.findOne(
@@ -44,15 +45,15 @@ const calculateEvPerMatch = async () => {
   const allMatchesInSnapshot = latestSnapshot.matches;
   const upcomingMatches = allMatchesInSnapshot.filter(match => {
     const matchStartTime = new Date(match.event.start); // Detta är redan ett UTC Date-objekt
-    return matchStartTime > nowUtc && matchStartTime <= twentyMinutesFromNowUtc;
+    return matchStartTime > nowUtc && matchStartTime <= windowEndUtc;
   });
 
   if (!upcomingMatches.length) {
-    logger.info("Inga matcher hittades som startar inom de närmaste 20 minuterna.");
+    logger.info(`Inga matcher hittades som startar inom de närmaste ${UPCOMING_WINDOW_MINUTES} minuterna.`);
     return;
   }
 
-  logger.info(`Hittade ${upcomingMatches.length} matcher som startar inom 20 minuter.`);
+  logger.info(`Hittade ${upcomingMatches.length} matcher som startar inom ${UPCOMING_WINDOW_MINUTES} minuter.`);
 
   for (const match of upcomingMatches) {
     const matchId = match.event.id;
