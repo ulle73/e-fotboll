@@ -18,7 +18,7 @@ const calculateEvPerMatch = async () => {
 
   const now = new Date();
   const nowUtc = new Date(now.toUTCString()); // Konvertera aktuell lokal tid till UTC Date-objekt
-  const twentyMinutesFromNowUtc = new Date(nowUtc.getTime() + 20 * 60 * 1000); // Lägg till 20 minuter till UTC-tid
+  const twentyMinutesFromNowUtc = new Date(nowUtc.getTime() + 8 * 60 * 1000); // Lägg till 20 minuter till UTC-tid
 
   // Hämta den senaste snapshoten från unibet_matches
   const latestSnapshot = await unibetMatchesCollection.findOne(

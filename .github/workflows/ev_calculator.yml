@@ -1,47 +1,37 @@
-name: Unibet EV Calculator
+name: EV Calculator
 
 on:
   schedule:
-    # Kör var 15:e minut
-    - cron: '*/15 * * * *'
-  workflow_dispatch: # Tillåter manuell körning
+    - cron: "*/2 * * * *"
+  workflow_dispatch:
 
 jobs:
-  run_ev_calculator:
+  ev-calculator:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
-      - name: Set up Node.js
+
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20' # Eller den version du använder
+          node-version: 20
+          cache: npm
+
       - name: Install dependencies
-        run: npm ci # Eller npm install om du inte har package-lock.json
-
-      - name: Install Chrome deps
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libgbm1 \
-            libnss3 \
-            libatk-bridge2.0-0 \
-            libx11-xcb1 \
-            libxcb-dri3-0 \
-            libxcb1 \
-            libxdamage1 \
-            libxfixes3 \
-            libxcomposite1 \
-            libxrandr2 \
-            libxi6 \
-            libcups2 \
-            libxkbcommon0 \
-            libdrm2 \
-            libasound2t64
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install
+          fi
 
-      - name: Run EV Calculator
+      - name: Run EV calculator
         env:
-          PUPPETEER_INFO: "--no-sandbox --disable-setuid-sandbox --disable-dev-shm-usage --no-zygote --no-first-run"
-          MONGODB_URI: ${{ secrets.MONGODB_URI }} # Se till att du har detta som en GitHub Secret
-          # Andra miljövariabler som behövs för API-nycklar etc.
+          NODE_ENV: production
+          MONGODB_URI: ${{ secrets.MONGODB_URI }}
+          MONGODB_DB_NAME: ${{ secrets.MONGODB_DB_NAME }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: node src/ev_calculator.js

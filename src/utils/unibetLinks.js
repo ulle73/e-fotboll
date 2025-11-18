@@ -1,4 +1,4 @@
-const DEFAULT_UNIBET_BASE = process.env.UNIBET_BASE_URL || 'https://www.unibet.se';
+const DEFAULT_UNIBET_BASE = 'https://www.unibet.se';
 
 /**
  * Bygger en direktlänk till en Unibet-event-sida givet eventId.
