@@ -26,6 +26,13 @@ const calculateEvPerMatch = async () => {
   const unibetOddsCollection = db.collection('unibet-odds');
   const playerStatsCollection = db.collection('player_stats');
   const UPCOMING_WINDOW_MINUTES = 10;
+  
+ 
+  logger.info(`**************************DB name: ${db.databaseName}`);
+
+  const playerCount = await db.collection("player_stats").countDocuments();
+  logger.info(`*************************Antal player_stats-dokument: ${playerCount}`);
+
 
   const now = new Date();
   const nowUtc = new Date(now.toUTCString()); // Konvertera aktuell lokal tid till UTC Date-objekt
