@@ -1,6 +1,11 @@
 // src/services/evCalculatorService.js
 import * as logger from '../utils/logger.js';
 import { poissonOverProbability, poissonUnderProbability } from '../utils/poisson.js';
+import { calculateExpectedGoals, pickLambdaForScope } from '../utils/evFormulas.js';
+
+// Lista över criterion.id som ska behandlas (lägg till/ta bort vid behov)
+const ALLOWED_CRITERION_IDS = [1001159926, 1001159633, 1001159967];
+const ALLOWED_BETOFFERTYPE_IDS = [6];
 
 /**
  * Beräknar Expected Value (EV) för en given match.
@@ -15,11 +20,7 @@ export const calculateEvForMatch = (match, odds, homePlayerStats, awayPlayerStat
   const awayName = match.event.awayName;
   const matchId = match.event.id;
 
-  // Anta att vi använder 'weighted.raz_optimal.avgGoalsFor' som lambda för totala mål
-  // Detta är en enkel uppskattning och kan förfinas
-  const homeLambda = homePlayerStats.weighted.raz_optimal.avgGoalsFor;
-  const awayLambda = awayPlayerStats.weighted.raz_optimal.avgGoalsFor;
-  const totalLambda = homeLambda + awayLambda; // Enkel uppskattning för totala mål
+  const expectedGoals = calculateExpectedGoals(homePlayerStats, awayPlayerStats);
 
   const evResults = [];
 
@@ -30,8 +31,8 @@ export const calculateEvForMatch = (match, odds, homePlayerStats, awayPlayerStat
 
   for (const betOffer of odds.odds.betOffers) {
     const isTotalGoalsMarket =
-      (betOffer.criterion?.englishLabel === 'Total Goals' || betOffer.criterion?.label === 'Totala mål') &&
-      (betOffer.betOfferType?.englishName === 'Over/Under' || betOffer.betOfferType?.name === 'Över/Under');
+      ALLOWED_CRITERION_IDS.includes(betOffer.criterion?.id) &&
+      ALLOWED_BETOFFERTYPE_IDS.includes(betOffer.betOfferType?.id);
 
     if (!isTotalGoalsMarket || !Array.isArray(betOffer.outcomes) || betOffer.outcomes.length !== 2) {
       continue;
@@ -49,11 +50,23 @@ export const calculateEvForMatch = (match, odds, homePlayerStats, awayPlayerStat
     const overOdds = overOutcome.odds / 1000; // Odds är t.ex. 1240 för 1.24
     const underOdds = underOutcome.odds / 1000;
 
+    // Bestäm om marknaden avser home/away/total beroende på criterion-label
+    const criterionLabelRaw = betOffer.criterion?.label || betOffer.criterion?.englishLabel || '';
+    const label = `${betOffer.criterion?.englishLabel || ''} ${betOffer.criterion?.label || ''}`.toLowerCase();
+    let scope = 'total';
+    if (label.includes(homeName.toLowerCase())) {
+      scope = 'home';
+    } else if (label.includes(awayName.toLowerCase())) {
+      scope = 'away';
+    }
+
+    const lambda = pickLambdaForScope(scope, expectedGoals);
+
     // Beräkna sannolikheter med Poisson
     // P(X > line) = 1 - P(X <= line)
-    const probOver = poissonOverProbability(Math.floor(line), totalLambda);
+    const probOver = poissonOverProbability(Math.floor(line), lambda);
     // P(X < line) = P(X <= line - 1)
-    const probUnder = poissonUnderProbability(Math.ceil(line), totalLambda);
+    const probUnder = poissonUnderProbability(Math.ceil(line), lambda);
 
     // Beräkna Expected Value (EV)
     const evOver = (probOver * overOdds) - 1;
@@ -63,13 +76,13 @@ export const calculateEvForMatch = (match, odds, homePlayerStats, awayPlayerStat
       line,
       overOdds,
       underOdds,
+      scope,
+      criterionLabel: criterionLabelRaw || scope,
       probOver,
       probUnder,
       evOver,
       evUnder,
-      homeLambda,
-      awayLambda,
-      totalLambda,
+      expectedGoals,
     });
   }
 

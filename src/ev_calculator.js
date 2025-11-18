@@ -120,7 +120,7 @@ const calculateEvPerMatch = async () => {
     const sections = [];
 
     sortedResults.forEach((result) => {
-      const { line, overOdds, underOdds, probOver, probUnder, evOver, evUnder } = result;
+      const { line, overOdds, underOdds, probOver, probUnder, evOver, evUnder, criterionLabel } = result;
       const probOverPct = asPercent(probOver);
       const probUnderPct = asPercent(probUnder);
       const evOverPct = asPercent(evOver);
@@ -137,6 +137,7 @@ const calculateEvPerMatch = async () => {
           trueOdds: trueOverOdds,
           ev: evOverPct,
           highlight: evOver > evThreshold,
+          scopeLabel: criterionLabel,
         });
       }
 
@@ -147,6 +148,7 @@ const calculateEvPerMatch = async () => {
           trueOdds: trueUnderOdds,
           ev: evUnderPct,
           highlight: evUnder > evThreshold,
+          scopeLabel: criterionLabel,
         });
       }
 
@@ -154,6 +156,7 @@ const calculateEvPerMatch = async () => {
 
       plays.forEach((play) => {
         const section = `${play.label}
+🏷️  ${play.scopeLabel}
 🎲  Odds: ${play.odds}
 🎯  True odds: ${play.trueOdds}
 💰  EV: ${play.ev}
