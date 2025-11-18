@@ -120,6 +120,30 @@ const weightedAverage = (weights, slices) => {
   return result;
 };
 
+const median = (arr) => {
+  if (!arr.length) return 0;
+  const sorted = [...arr].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+};
+
+const trimmedMean = (arr, trimFraction = 0.1) => {
+  if (!arr.length) return 0;
+  const sorted = [...arr].sort((a, b) => a - b);
+  const trimCount = Math.floor(sorted.length * trimFraction);
+  const trimmed = sorted.slice(trimCount, sorted.length - trimCount || sorted.length);
+  if (!trimmed.length) return median(sorted);
+  const sum = trimmed.reduce((s, v) => s + v, 0);
+  return sum / trimmed.length;
+};
+
+const variance = (arr) => {
+  if (!arr.length) return 0;
+  const mean = arr.reduce((s, v) => s + v, 0) / arr.length;
+  const diffs = arr.map((v) => (v - mean) ** 2);
+  return diffs.reduce((s, v) => s + v, 0) / arr.length;
+};
+
 const buildStats = (normalized) => {
   // Filtrera bort matcher som inte har resultat (dvs. planerade matcher)
   const completedMatches = normalized.filter(
@@ -209,8 +233,46 @@ const buildStats = (normalized) => {
     const weighted30_70 = weightedAverage({ last20: 0.3, last50: 0.7 }, slices);
     const weighted50_30_20 = weightedAverage({ last8: 0.5, last20: 0.3, last50: 0.2 }, slices);
     const weighted33s = weightedAverage({ last20: 1 / 3, last50: 1 / 3, last100: 1 / 3 }, slices);
+    const weightedFormHeavy = weightedAverage({ last8: 0.6, last20: 0.3, last50: 0.1 }, slices);
+    const weightedExpDecay = weightedAverage(
+      { last8: 0.5, last20: 0.25, last50: 0.15, last100: 0.1 },
+      slices,
+    );
 
     const [playerNick, mode] = key.split(':::');
+    const goalsForArr = sorted.map((r) => r.goalsFor);
+    const goalsAgainstArr = sorted.map((r) => r.goalsAgainst);
+    const totalGoalsArr = sorted.map((r) => r.goalsFor + r.goalsAgainst);
+    const medianMetrics = {
+      avgGoalsFor: median(goalsForArr),
+      avgGoalsAgainst: median(goalsAgainstArr),
+      avgTotalGoals: median(totalGoalsArr),
+      firstHalfAvgGoalsFor: median(sorted.map((r) => r.firstHalfFor ?? 0)),
+      firstHalfAvgGoalsAgainst: median(sorted.map((r) => r.firstHalfAgainst ?? 0)),
+      firstHalfAvgTotalGoals: median(
+        sorted.map((r) =>
+          Number.isFinite(r.firstHalfFor) && Number.isFinite(r.firstHalfAgainst)
+            ? r.firstHalfFor + r.firstHalfAgainst
+            : 0,
+        ),
+      ),
+    };
+    const trimmedMetrics = {
+      avgGoalsFor: trimmedMean(goalsForArr),
+      avgGoalsAgainst: trimmedMean(goalsAgainstArr),
+      avgTotalGoals: trimmedMean(totalGoalsArr),
+      firstHalfAvgGoalsFor: trimmedMean(sorted.map((r) => r.firstHalfFor ?? 0)),
+      firstHalfAvgGoalsAgainst: trimmedMean(sorted.map((r) => r.firstHalfAgainst ?? 0)),
+      firstHalfAvgTotalGoals: trimmedMean(
+        sorted.map((r) =>
+          Number.isFinite(r.firstHalfFor) && Number.isFinite(r.firstHalfAgainst)
+            ? r.firstHalfFor + r.firstHalfAgainst
+            : 0,
+        ),
+      ),
+    };
+    const varTotal = variance(totalGoalsArr);
+    const volatilityScale = 1 / (1 + varTotal);
     stats.push({
       playerNick,
       mode,
@@ -223,6 +285,19 @@ const buildStats = (normalized) => {
         raz_optimal: weighted30_70,
         form_agressive: weighted50_30_20,
         equal_weighted: weighted33s,
+        form_heavy: weightedFormHeavy,
+        exp_decay: weightedExpDecay,
+        median_based: medianMetrics,
+        trimmed_mean: trimmedMetrics,
+        volatility_adjusted: Object.fromEntries(
+          Object.entries(weighted30_70).map(([k, v]) => [k, (v ?? 0) * volatilityScale]),
+        ),
+        recency_trigger:
+          Math.abs((slices.last8.avgGoalsFor || 0) - (slices.last50.avgGoalsFor || 0)) /
+            Math.max(slices.last50.avgGoalsFor || 0.0001, 0.0001) >
+          0.2
+            ? weighted50_30_20
+            : weighted33s,
       },
       updatedAtIso: nowIso(),
     });
