@@ -7,6 +7,16 @@ import { calculateEvForMatch } from './services/evCalculatorService.js'; // Impo
 import { formatLocalDateTime } from './utils/time.js';
 import { buildUnibetEventUrl } from './utils/unibetLinks.js';
 
+const stopBotPollingSafely = async () => {
+  if (typeof bot?.stopPolling === 'function') {
+    try {
+      await bot.stopPolling();
+    } catch (err) {
+      logger.warn(`Kunde inte stoppa Telegram-polling: ${err.message}`);
+    }
+  }
+};
+
 // TODO: Implement EV calculation logic here
 const calculateEvPerMatch = async () => {
   logger.info("Starting EV calculation per match...");
@@ -171,6 +181,7 @@ const main = async () => {
   } catch (error) {
     logger.error("Ett fel uppstod i EV-kalkylatorn:", error);
   } finally {
+    await stopBotPollingSafely();
     await closeBrowser();
     await closeDb();
   }
