@@ -20,6 +20,35 @@ const isMain = process.argv[1] && path.resolve(process.argv[1]) === __filename;
 
 const OUTPUT_PATH = pathRelativeToRoot('data', 'esb', 'normalized_matches.json');
 
+const DISALLOWED_TOURNAMENT_TOKEN_PARTS = [
+  '2x6',
+  '2x6min',
+  '2x6 min',
+  '2x 6min',
+  '2x 6 min',
+  'volta',
+];
+
+const tournamentHasBlockedToken = (tournament) => {
+  const tokens = [
+    tournament?.token,
+    tournament?.token_internatinal,
+    tournament?.token_international,
+  ];
+
+  return tokens.some((token) => {
+    if (token === null || token === undefined) return false;
+    const lower = String(token).toLowerCase();
+    const compact = lower.replace(/\s+/g, '');
+
+    return (
+      DISALLOWED_TOURNAMENT_TOKEN_PARTS.some((blocked) => lower.includes(blocked)) ||
+      compact.includes('2x6') ||
+      compact.includes('2x6min')
+    );
+  });
+};
+
 
 
 const parseScoreString = (value) => {
@@ -184,6 +213,16 @@ const deduplicateMatches = (rawEntries) => {
   const map = new Map();
 
   rawEntries.forEach((entry) => {
+    const tournament = entry?.data?.tournament || entry?.data?.rawResponse?.tournament;
+    if (tournament && tournamentHasBlockedToken(tournament)) {
+      logger.info(
+        `Hoppar över turnering med spärrad token i normalizeMatches: ${
+          tournament?.token || tournament?.token_internatinal || tournament?.token_international || 'okänd'
+        } (${entry.relativePath})`,
+      );
+      return;
+    }
+
     const matches = extractMatchesFromRaw(entry.data);
     matches.forEach((match, idx) => {
       const normalized = normalizeMatch(match, entry);

@@ -28,16 +28,43 @@ const isMain = process.argv[1] && path.resolve(process.argv[1]) === __filename;
 const URLS_PATH = pathRelativeToRoot('config', 'urls.json');
 
 const RAW_ROOT = pathRelativeToRoot('data', 'esb', 'raw_matches');
-const LAST_RUN_PATH = path.join(RAW_ROOT, '.last_run.json');
 const MAX_PAGES = 200;
 const RECENT_TOURNAMENT_PAGES = 5; // Begränsa till senaste X sidor per spelare för att snabba upp hämtningen.
-const MAX_MATCHES_PER_PLAYER = 200; // Högst N matcher per spelare per körning.
+const MAX_MATCHES_PER_PLAYER = 20; // Högst N matcher per spelare per körning.
 const DEFAULT_SINCE_HOURS = 48;
+const LAST_RUN_COLLECTION = 'esb_metadata';
+const LAST_RUN_DOC_ID = 'fetchRawMatchesLastRun';
 
 const fetchJson = async (url, timeoutMs = 20000) => fetchJsonWithPuppeteer(url, timeoutMs);
 
 const getMatchId = (match) =>
   match?.id ?? match?.matchId ?? match?.match_id ?? match?._id ?? match?.eventId ?? null;
+
+const DISALLOWED_TOURNAMENT_TOKEN_PARTS = [
+  '2x6',
+  '2x6min',
+  '2x6 min',
+  '2x 6min',
+  '2x 6 min',
+  'volta',
+  'Volta'
+];
+
+const tournamentHasBlockedToken = (tournament) => {
+  const tokens = [tournament?.token, tournament?.token_internatinal];
+
+  return tokens.some((token) => {
+    if (token === null || token === undefined) return false;
+    const lower = String(token).toLowerCase();
+    const compact = lower.replace(/\s+/g, '');
+
+    return (
+      DISALLOWED_TOURNAMENT_TOKEN_PARTS.some((blocked) => lower.includes(blocked)) ||
+      compact.includes('2x6') ||
+      compact.includes('2x6min')
+    );
+  });
+};
 
 const getMatchDate = (match) =>
   match?.kickoff ??
@@ -53,7 +80,7 @@ const toTs = (value) => {
   return Number.isFinite(ms) ? ms : 0;
 };
 
-const parseSinceTs = async () => {
+const parseSinceTs = async (db) => {
   const argDate = process.argv.find((a) => a.startsWith('--date='));
   const argHours = process.argv.find((a) => a.startsWith('--sinceHours='));
 
@@ -71,21 +98,23 @@ const parseSinceTs = async () => {
   }
 
   try {
-    const lastRun = await readJson(LAST_RUN_PATH, null);
-    const ts = Date.parse(lastRun?.lastRunIso);
+    const lastRunDoc = await db.collection(LAST_RUN_COLLECTION).findOne({ _id: LAST_RUN_DOC_ID });
+    const ts = Date.parse(lastRunDoc?.lastRunIso);
     if (Number.isFinite(ts)) return ts;
   } catch (err) {
-    // Ignorera last-run-fel och gå vidare till default.
+    logger.info(`Kunde inte läsa last-run från DB, fortsätter med default: ${err.message}`);
   }
 
   return Date.now() - DEFAULT_SINCE_HOURS * 60 * 60 * 1000;
 };
 
-const saveLastRun = async (runIso) => {
+const saveLastRun = async (runIso, db) => {
   try {
-    await writeJson(LAST_RUN_PATH, { lastRunIso: runIso });
+    await db
+      .collection(LAST_RUN_COLLECTION)
+      .updateOne({ _id: LAST_RUN_DOC_ID }, { $set: { lastRunIso: runIso } }, { upsert: true });
   } catch (err) {
-    logger.info(`Kunde inte spara last-run: ${err.message}`);
+    logger.info(`Kunde inte spara last-run till DB: ${err.message}`);
   }
 };
 
@@ -208,6 +237,7 @@ const processPlayer = async (player, urls, sinceTs, db) => {
   const seenIds = new Set(knownIds);
   let fetchedMatches = 0;
   const allRawRecords = []; // New array to collect records
+  let consecutiveBlockedTournaments = 0;
 
   const template = urls.api?.participantsTournaments;
   if (!template) throw new Error('participantsTournaments saknas i urls.json');
@@ -262,6 +292,23 @@ const processPlayer = async (player, urls, sinceTs, db) => {
         logger.error(`Hittade inget tournamentId för index ${i} (spelare ${player.nickname}), hoppar över`);
         continue;
       }
+
+      if (tournamentHasBlockedToken(tournament)) {
+        consecutiveBlockedTournaments += 1;
+        const tokenLabel = [tournament?.token, tournament?.token_internatinal].filter(Boolean).join(' / ') || 'okänd';
+        logger.info(
+          `Hoppar över tournament ${tournamentId} (spelare ${player.nickname}) pga spärrad token: ${tokenLabel} (${consecutiveBlockedTournaments} i rad).`,
+        );
+
+        if (consecutiveBlockedTournaments >= 3) {
+          logger.info(
+            `${consecutiveBlockedTournaments} spärrade turneringar i rad hittades för ${player.nickname}, går vidare till nästa spelare.`,
+          );
+          stopProcessingPlayer = true;
+        }
+        continue;
+      }
+      consecutiveBlockedTournaments = 0;
 
       try {
         const matchPayload = await fetchTournamentMatches(tournamentId, urls);
@@ -339,7 +386,8 @@ const processPlayer = async (player, urls, sinceTs, db) => {
 };
 
 export const main = async () => {
-  const sinceTs = await parseSinceTs();
+  const db = await getDb();
+  const sinceTs = await parseSinceTs(db);
   const runIso = nowIso();
   logger.step(`Hämtar matcher sedan ${new Date(sinceTs).toISOString()}`);
 
@@ -347,8 +395,6 @@ export const main = async () => {
   if (!urls) throw new Error('Kunde inte läsa config/urls.json');
 
   await ensureDir(RAW_ROOT);
-
-  const db = await getDb();
 
   try {
     const players = await db.collection('esb_players').find({ source: 'esportsbattle' }).toArray();
@@ -365,7 +411,7 @@ export const main = async () => {
     });
     await runWithConcurrency(playerTasks, 2);
 
-    await saveLastRun(runIso);
+    await saveLastRun(runIso, db);
     logger.success('Klar med fetchRawMatches');
   } finally {
     // await shutdownPuppeteer(); // Moved to index.js

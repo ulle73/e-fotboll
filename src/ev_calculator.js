@@ -67,6 +67,9 @@ const calculateEvPerMatch = async () => {
       continue;
     }
 
+    // Logga hela odds-objektet för att se strukturen
+    logger.info(`[DEBUG] Odds object for match ${matchId}: ${JSON.stringify(odds.odds)}`);
+
     // Hämta spelarstatistik för hemma- och bortalag
     const homePlayerStats = await playerStatsCollection.findOne({ playerNick: homePlayerNick });
     const awayPlayerStats = await playerStatsCollection.findOne({ playerNick: awayPlayerNick });
@@ -86,12 +89,15 @@ const calculateEvPerMatch = async () => {
     }
 
     let matchSummaryMessage = `*Match: ${homeName} vs ${awayName}*
-Kickoff: ${match.kickoff}
+Kickoff: ${match.event.start}
 `;
-    let foundPositiveEv = false;
+    let foundPositiveEv = false; // Används för att markera om någon positiv EV hittades
 
     for (const result of evResults) {
       const { line, overOdds, underOdds, probOver, probUnder, evOver, evUnder } = result;
+
+      // Logga linan och dess odds
+      logger.info(`[DEBUG] Linje ${line} Mål: Över ${line} Odds: ${overOdds}, Under ${line} Odds: ${underOdds}`);
 
       let lineMessage = `
 --- Linje ${line} Mål ---
@@ -115,10 +121,12 @@ Kickoff: ${match.kickoff}
       matchSummaryMessage += lineMessage;
     }
 
+    // Skicka alltid meddelandet, men markera om det finns positiv EV
     if (foundPositiveEv) {
       await bot.sendMessage(match.chatId || process.env.TELEGRAM_CHAT_ID, matchSummaryMessage, { parse_mode: 'Markdown' });
     } else {
-      logger.info(`Ingen signifikant EV hittades för ${homeName} vs ${awayName} på någon linje.`);
+      logger.info(`Ingen signifikant EV hittades för ${homeName} vs ${awayName} på någon linje. Skickar ändå meddelande med alla resultat.`);
+      await bot.sendMessage(match.chatId || process.env.TELEGRAM_CHAT_ID, matchSummaryMessage, { parse_mode: 'Markdown' });
     }
   }
 
