@@ -17,7 +17,7 @@ const OUTPUT_PATH = pathRelativeToRoot('data', 'esb', 'player_stats.json');
 
 const normalizeModeKey = (modeRaw) => {
   const val = (modeRaw ?? 'unknown').toString().toLowerCase();
-  if (val.includes('2x4')) return '2x4';
+  if (val.includes('2x4min')) return '2x4';
   if (val.includes('2x6')) return '2x6';
   return val || 'unknown';
 };
@@ -39,13 +39,68 @@ const summarize = (rows) => {
   const avgGoalsFor = totalMatches ? goalsFor / totalMatches : 0;
   const avgGoalsAgainst = totalMatches ? goalsAgainst / totalMatches : 0;
   const avgTotalGoals = totalMatches ? (goalsFor + goalsAgainst) / totalMatches : 0;
-  return { totalMatches, goalsFor, goalsAgainst, avgGoalsFor, avgGoalsAgainst, avgTotalGoals };
+
+  const firstHalfForSum = rows.reduce(
+    (sum, r) => (Number.isFinite(r.firstHalfFor) ? sum + r.firstHalfFor : sum),
+    0,
+  );
+  const firstHalfAgainstSum = rows.reduce(
+    (sum, r) => (Number.isFinite(r.firstHalfAgainst) ? sum + r.firstHalfAgainst : sum),
+    0,
+  );
+  const firstHalfForCount = rows.reduce(
+    (count, r) => (Number.isFinite(r.firstHalfFor) ? count + 1 : count),
+    0,
+  );
+  const firstHalfAgainstCount = rows.reduce(
+    (count, r) => (Number.isFinite(r.firstHalfAgainst) ? count + 1 : count),
+    0,
+  );
+  const firstHalfTotalSum = rows.reduce(
+    (sum, r) =>
+      Number.isFinite(r.firstHalfFor) && Number.isFinite(r.firstHalfAgainst)
+        ? sum + r.firstHalfFor + r.firstHalfAgainst
+        : sum,
+    0,
+  );
+  const firstHalfTotalCount = rows.reduce(
+    (count, r) =>
+      Number.isFinite(r.firstHalfFor) && Number.isFinite(r.firstHalfAgainst) ? count + 1 : count,
+    0,
+  );
+
+  const avgFirstHalfGoalsFor = firstHalfForCount ? firstHalfForSum / firstHalfForCount : 0;
+  const avgFirstHalfGoalsAgainst = firstHalfAgainstCount
+    ? firstHalfAgainstSum / firstHalfAgainstCount
+    : 0;
+  const avgFirstHalfTotalGoals = firstHalfTotalCount ? firstHalfTotalSum / firstHalfTotalCount : 0;
+
+  return {
+    totalMatches,
+    goalsFor,
+    goalsAgainst,
+    avgGoalsFor,
+    avgGoalsAgainst,
+    avgTotalGoals,
+    firstHalfGoalsFor: firstHalfForSum,
+    firstHalfGoalsAgainst: firstHalfAgainstSum,
+    firstHalfAvgGoalsFor: avgFirstHalfGoalsFor,
+    firstHalfAvgGoalsAgainst: avgFirstHalfGoalsAgainst,
+    firstHalfAvgTotalGoals: avgFirstHalfTotalGoals,
+  };
 };
 
 const summarizeWindow = (rows, limit) => summarize(rows.slice(0, limit));
 
 const weightedAverage = (weights, slices) => {
-  const metrics = ['avgGoalsFor', 'avgGoalsAgainst', 'avgTotalGoals'];
+  const metrics = [
+    'avgGoalsFor',
+    'avgGoalsAgainst',
+    'avgTotalGoals',
+    'firstHalfAvgGoalsFor',
+    'firstHalfAvgGoalsAgainst',
+    'firstHalfAvgTotalGoals',
+  ];
   const entries = Object.entries(weights).filter(([key, weight]) => weight && slices[key]);
   const totalWeight = entries.reduce((sum, [, weight]) => sum + weight, 0);
   const result = Object.fromEntries(metrics.map((metric) => [metric, 0]));
@@ -73,19 +128,70 @@ const buildStats = (normalized) => {
 
   const map = new Map();
 
-  const pushMatch = (playerNick, modeRaw, goalsFor, goalsAgainst, kickoff) => {
+  const pushMatch = (playerNick, modeRaw, goalsFor, goalsAgainst, firstHalfFor, firstHalfAgainst, kickoff) => {
     const mode = normalizeModeKey(modeRaw);
     const key = `${playerNick}:::${mode}`;
     const entry = map.get(key) || [];
-    entry.push({ playerNick, mode, goalsFor, goalsAgainst, kickoff });
+    entry.push({ playerNick, mode, goalsFor, goalsAgainst, firstHalfFor, firstHalfAgainst, kickoff });
     map.set(key, entry);
+  };
+
+  const getFirstHalfScore = (match, side) => {
+    const candidates =
+      side === 'home'
+        ? [
+            match.prevPeriodsScoresHome,
+            match.participant1?.prevPeriodsScores,
+            match.home?.prevPeriodsScores,
+            match.prevPeriodsScoresHome,
+            match.homePrevPeriodsScores,
+            match.prevPeriodsScores?.home,
+          ]
+        : [
+            match.prevPeriodsScoresAway,
+            match.participant2?.prevPeriodsScores,
+            match.away?.prevPeriodsScores,
+            match.prevPeriodsScoresAway,
+            match.awayPrevPeriodsScores,
+            match.prevPeriodsScores?.away,
+          ];
+
+    for (const cand of candidates) {
+      if (Array.isArray(cand) && cand.length) {
+        const val = Number(cand[0]);
+        if (Number.isFinite(val)) return val;
+      }
+      const num = Number(cand);
+      if (Number.isFinite(num)) return num;
+    }
+    return null;
   };
 
   completedMatches.forEach((match) => {
     const { homePlayerNick, awayPlayerNick, goalsHome, goalsAway, mode, kickoff, date } = match;
     const ts = toTimestamp(kickoff || date);
-    pushMatch(homePlayerNick, mode, toNumberSafe(goalsHome), toNumberSafe(goalsAway), ts);
-    pushMatch(awayPlayerNick, mode, toNumberSafe(goalsAway), toNumberSafe(goalsHome), ts);
+    const fhHome = getFirstHalfScore(match, 'home');
+    const fhAway = getFirstHalfScore(match, 'away');
+    const firstHalfHome = Number.isFinite(fhHome) ? fhHome : null;
+    const firstHalfAway = Number.isFinite(fhAway) ? fhAway : null;
+    pushMatch(
+      homePlayerNick,
+      mode,
+      toNumberSafe(goalsHome),
+      toNumberSafe(goalsAway),
+      firstHalfHome,
+      firstHalfAway,
+      ts,
+    );
+    pushMatch(
+      awayPlayerNick,
+      mode,
+      toNumberSafe(goalsAway),
+      toNumberSafe(goalsHome),
+      firstHalfAway,
+      firstHalfHome,
+      ts,
+    );
   });
 
   const stats = [];

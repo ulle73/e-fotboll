@@ -181,6 +181,15 @@ const extractMatchesFromRaw = (raw) => {
   return [];
 };
 
+const toFirstHalfScore = (value) => {
+  if (Array.isArray(value) && value.length) {
+    const num = Number(value[0]);
+    return Number.isFinite(num) ? num : null;
+  }
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+};
+
 const normalizeMatch = (match, context) => {
   const dateValue = getDateValue(match);
   const mode = getMode(match) || 'unknown';
@@ -194,6 +203,21 @@ const normalizeMatch = (match, context) => {
   const keyString = `${dateValue ?? 'n/a'}|${mode}|${homePlayerNick}|${awayPlayerNick}|${goalsHome}|${goalsAway}`;
   const esbMatchId = crypto.createHash('sha1').update(keyString).digest('hex');
 
+  const prevHomeRaw =
+    match?.participant1?.prevPeriodsScores ??
+    match?.home?.prevPeriodsScores ??
+    match?.prevPeriodsScoresHome ??
+    match?.homePrevPeriodsScores ??
+    match?.prevPeriodsScores?.home ??
+    null;
+  const prevAwayRaw =
+    match?.participant2?.prevPeriodsScores ??
+    match?.away?.prevPeriodsScores ??
+    match?.prevPeriodsScoresAway ??
+    match?.awayPrevPeriodsScores ??
+    match?.prevPeriodsScores?.away ??
+    null;
+
   return {
     esbMatchId,
     source: 'esportsbattle',
@@ -206,6 +230,8 @@ const normalizeMatch = (match, context) => {
     goalsAway: Number.isFinite(goalsAway) ? goalsAway : null,
     totalGoals,
     rawIds: [context.relativePath],
+    prevPeriodsScoresHome: toFirstHalfScore(prevHomeRaw),
+    prevPeriodsScoresAway: toFirstHalfScore(prevAwayRaw),
   };
 };
 

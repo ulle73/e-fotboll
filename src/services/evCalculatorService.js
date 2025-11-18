@@ -4,7 +4,7 @@ import { poissonOverProbability, poissonUnderProbability } from '../utils/poisso
 import { calculateExpectedGoals, pickLambdaForScope } from '../utils/evFormulas.js';
 
 // Lista över criterion.id som ska behandlas (lägg till/ta bort vid behov)
-const ALLOWED_CRITERION_IDS = [1001159926, 1001159633, 1001159967];
+const ALLOWED_CRITERION_IDS = [1001159926, 1001159633, 1001159967, 1001159532];
 const ALLOWED_BETOFFERTYPE_IDS = [6];
 
 /**
@@ -50,11 +50,21 @@ export const calculateEvForMatch = (match, odds, homePlayerStats, awayPlayerStat
     const overOdds = overOutcome.odds / 1000; // Odds är t.ex. 1240 för 1.24
     const underOdds = underOutcome.odds / 1000;
 
-    // Bestäm om marknaden avser home/away/total beroende på criterion-label
+    // Bestäm om marknaden avser home/away/total alt. första halvlek beroende på criterion-label
     const criterionLabelRaw = betOffer.criterion?.label || betOffer.criterion?.englishLabel || '';
     const label = `${betOffer.criterion?.englishLabel || ''} ${betOffer.criterion?.label || ''}`.toLowerCase();
+    const isFirstHalf =
+      label.includes('first half') ||
+      label.includes('1st half') ||
+      label.includes('first-half') ||
+      label.includes('1h') ||
+      label.includes('1:a halvlek') ||
+      label.includes('första halvlek');
+
     let scope = 'total';
-    if (label.includes(homeName.toLowerCase())) {
+    if (isFirstHalf) {
+      scope = 'firstHalf'; // Vi har bara total för första halvlek, ingen per lag
+    } else if (label.includes(homeName.toLowerCase())) {
       scope = 'home';
     } else if (label.includes(awayName.toLowerCase())) {
       scope = 'away';
