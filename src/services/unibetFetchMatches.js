@@ -13,7 +13,7 @@ export async function runUnibetFetchMatches() {
   logger.info("Hämtar data från Unibet...");
   const data = await fetchStartingWithinData();
 
-  const allowedGroups = ["esports battle (2x4", "esports battle (2x6"];
+  const allowedGroups = ["esports battle (2x4"];
   const filteredData = filterEvents(data, "esports_football", allowedGroups);
 
   const { now, datePart, timePart, localIso, utcIso } = getNowTimeParts();
