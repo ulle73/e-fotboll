@@ -5,6 +5,7 @@ import { filterEvents } from "../utils/filter.js";
 import * as logger from "../utils/logger.js";
 import { insertUnibetSnapshot } from "../db/unibetMatchesRepository.js";
 import { insertUnibetOddsBatch } from "../db/unibetOddsRepository.js";
+import { getNowTimeParts } from "../utils/time.js";
 import fs from "fs";
 import path from "path";
 
@@ -15,14 +16,7 @@ export async function runUnibetFetchMatches() {
   const allowedGroups = ["esports battle (2x4", "esports battle (2x6"];
   const filteredData = filterEvents(data, "esports_football", allowedGroups);
 
-  const now = new Date();
-
-  const datePart = now.toISOString().split("T")[0]; // YYYY-MM-DD
-  const timePart = now
-    .toISOString()
-    .split("T")[1]
-    .replace(/:/g, "-") // HH:mm:ss → HH-mm-ss
-    .replace("Z", ""); // ta bort Z
+  const { now, datePart, timePart, localIso, utcIso } = getNowTimeParts();
 
   const baseDir = "data/matches";
   const dateDir = path.join(baseDir, datePart);
@@ -39,7 +33,8 @@ export async function runUnibetFetchMatches() {
 
   const snapshot = {
     createdAt: now,
-    snapshotTime: now,
+    snapshotTime: localIso, // lokal tid (utan Z)
+    snapshotTimeUtc: utcIso, // behåll även UTC för referens
     filePath,
     matchCount: filteredData.length,
     matches: filteredData,
@@ -59,7 +54,8 @@ export async function runUnibetFetchMatches() {
       oddsDocs.push({
         snapshotId: insertedId,
         snapshotFilePath: filePath,
-        snapshotTime: now,
+        snapshotTime: localIso,
+        snapshotTimeUtc: utcIso,
         eventId,
         eventName: item?.event?.name || item?.event?.englishName || null,
         group: item?.event?.group || item?.event?.groupName || null,

@@ -4,6 +4,7 @@ import { getDb, closeDb } from "./db/mongoClient.js";
 import { runUnibetFetchMatches } from "./services/unibetFetchMatches.js";
 import bot from './telegramBot.js'; // Importera bot-instansen
 import { calculateEvForMatch } from './services/evCalculatorService.js'; // Importera den nya EV-tjänsten
+import { formatLocalDateTime } from './utils/time.js';
 
 // TODO: Implement EV calculation logic here
 const calculateEvPerMatch = async () => {
@@ -55,14 +56,7 @@ const calculateEvPerMatch = async () => {
     };
     const shouldShowAllEv = false; // Sätt till true om du vill se även negativa EV
     const evThreshold = 0; // Använd 0 för alla positiva, 0.05 för >5% etc.
-    const formatKickoff = (date) => {
-      const yyyy = date.getUTCFullYear();
-      const mm = String(date.getUTCMonth() + 1).padStart(2, '0');
-      const dd = String(date.getUTCDate()).padStart(2, '0');
-      const hh = String(date.getUTCHours()).padStart(2, '0');
-      const min = String(date.getUTCMinutes()).padStart(2, '0');
-      return `${yyyy}-${mm}-${dd} - ${hh}:${min}`;
-    };
+    const formatKickoff = (date) => formatLocalDateTime(date);
 
     // Extrahera bara smeknamnet från t.ex. "Czechia (Kodak)" -> "Kodak"
     const homePlayerNick = homeName.match(/\((.*?)\)/)?.[1] || homeName;
