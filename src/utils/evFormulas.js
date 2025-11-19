@@ -6,24 +6,36 @@
  * Förväntade mål away: (awayGF + homeGA) / 2
  * Total: home + away
  */
-export const calculateExpectedGoals = (homeStats, awayStats) => {
-  const gfHome = homeStats?.weighted?.raz_optimal?.avgGoalsFor ?? 0;
-  const gaHome = homeStats?.weighted?.raz_optimal?.avgGoalsAgainst ?? 0;
-  const gfAway = awayStats?.weighted?.raz_optimal?.avgGoalsFor ?? 0;
-  const gaAway = awayStats?.weighted?.raz_optimal?.avgGoalsAgainst ?? 0;
+export const calculateExpectedGoals = (homeStats, awayStats, formulaKey = 'raz_optimal') => {
+  const pickSet = (stats, key) => {
+    const weighted = stats?.weighted?.[key];
+    return {
+      gf: weighted?.avgGoalsFor ?? stats?.avgGoalsFor ?? 0,
+      ga: weighted?.avgGoalsAgainst ?? stats?.avgGoalsAgainst ?? 0,
+      fhGf:
+        weighted?.firstHalfAvgGoalsFor ??
+        stats?.weighted?.raz_optimal?.firstHalfAvgGoalsFor ??
+        stats?.firstHalfAvgGoalsFor ??
+        0,
+      fhGa:
+        weighted?.firstHalfAvgGoalsAgainst ??
+        stats?.weighted?.raz_optimal?.firstHalfAvgGoalsAgainst ??
+        stats?.firstHalfAvgGoalsAgainst ??
+        0,
+    };
+  };
 
-  const fhGfHome =
-    homeStats?.weighted?.raz_optimal?.firstHalfAvgGoalsFor ?? homeStats?.firstHalfAvgGoalsFor ?? 0;
-  const fhGaHome =
-    homeStats?.weighted?.raz_optimal?.firstHalfAvgGoalsAgainst ??
-    homeStats?.firstHalfAvgGoalsAgainst ??
-    0;
-  const fhGfAway =
-    awayStats?.weighted?.raz_optimal?.firstHalfAvgGoalsFor ?? awayStats?.firstHalfAvgGoalsFor ?? 0;
-  const fhGaAway =
-    awayStats?.weighted?.raz_optimal?.firstHalfAvgGoalsAgainst ??
-    awayStats?.firstHalfAvgGoalsAgainst ??
-    0;
+  const homeSet = pickSet(homeStats, formulaKey);
+  const awaySet = pickSet(awayStats, formulaKey);
+  const gfHome = homeSet.gf;
+  const gaHome = homeSet.ga;
+  const gfAway = awaySet.gf;
+  const gaAway = awaySet.ga;
+
+  const fhGfHome = homeSet.fhGf;
+  const fhGaHome = homeSet.fhGa;
+  const fhGfAway = awaySet.fhGf;
+  const fhGaAway = awaySet.fhGa;
 
   const expectedHome = (gfHome + gaAway) / 2;
   const expectedAway = (gfAway + gaHome) / 2;

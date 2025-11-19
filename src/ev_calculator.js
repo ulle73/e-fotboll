@@ -6,6 +6,7 @@ import bot from './telegramBot.js'; // Importera bot-instansen
 import { calculateEvForMatch } from './services/evCalculatorService.js'; // Importera den nya EV-tjänsten
 import { formatLocalDateTime } from './utils/time.js';
 import { buildUnibetEventUrl } from './utils/unibetLinks.js';
+import { nowIso } from './esb/utils.js';
 
 const stopBotPollingSafely = async () => {
   if (typeof bot?.stopPolling === 'function') {
@@ -25,6 +26,19 @@ const calculateEvPerMatch = async () => {
   const unibetMatchesCollection = db.collection('unibet-matches');
   const unibetOddsCollection = db.collection('unibet-odds');
   const playerStatsCollection = db.collection('player_stats');
+  const evBetsCollection = db.collection('ev-bets');
+  const formulas = [
+    'raz_optimal',
+    'form_agressive',
+    'equal_weighted',
+    'form_heavy',
+    'exp_decay',
+    'median_based',
+    'trimmed_mean',
+    'volatility_adjusted',
+    'recency_trigger',
+  ];
+  const evBetDocs = [];
   const UPCOMING_WINDOW_MINUTES = 10;
   
  
@@ -101,14 +115,77 @@ const calculateEvPerMatch = async () => {
     logger.info(`⚽ ${homeName} vs ${awayName}`);
     logger.info(`🕒 Kickoff (UTC): ${kickoffUtcIso}`);
     
-    const evResults = calculateEvForMatch(match, odds, homePlayerStats, awayPlayerStats);
+    let razEvResults = [];
+    for (const formula of formulas) {
+      const evResults = calculateEvForMatch(match, odds, homePlayerStats, awayPlayerStats, formula);
+      if (evResults && evResults.length) {
+        // Spara alla spel (over/under) för backtesting
+        evResults.forEach((res) => {
+          const trueOverOdds = res.probOver > 0 ? (1 / res.probOver).toFixed(2) : null;
+          const trueUnderOdds = res.probUnder > 0 ? (1 / res.probUnder).toFixed(2) : null;
+          evBetDocs.push({
+            eventId: matchId,
+            eventName: match.event.name || `${homeName} - ${awayName}`,
+            homeName,
+            awayName,
+            kickoff: match.event.start,
+            snapshotId: odds.snapshotId || null,
+            snapshotTime: odds.snapshotTime || null,
+            snapshotTimeUtc: odds.snapshotTimeUtc || null,
+            snapshotFilePath: odds.snapshotFilePath || null,
+            formula,
+            line: res.line,
+            scope: res.scope,
+            criterionLabel: res.criterionLabel,
+            selection: 'over',
+            offeredOdds: res.overOdds,
+            trueOdds: trueOverOdds,
+            probability: res.probOver,
+            ev: res.evOver,
+            expectedGoals: res.expectedGoals,
+            result: null,
+            settled: false,
+            source: 'unibet',
+            createdAt: nowIso(),
+          });
+          evBetDocs.push({
+            eventId: matchId,
+            eventName: match.event.name || `${homeName} - ${awayName}`,
+            homeName,
+            awayName,
+            kickoff: match.event.start,
+            snapshotId: odds.snapshotId || null,
+            snapshotTime: odds.snapshotTime || null,
+            snapshotTimeUtc: odds.snapshotTimeUtc || null,
+            snapshotFilePath: odds.snapshotFilePath || null,
+            formula,
+            line: res.line,
+            scope: res.scope,
+            criterionLabel: res.criterionLabel,
+            selection: 'under',
+            offeredOdds: res.underOdds,
+            trueOdds: trueUnderOdds,
+            probability: res.probUnder,
+            ev: res.evUnder,
+            expectedGoals: res.expectedGoals,
+            result: null,
+            settled: false,
+            source: 'unibet',
+            createdAt: nowIso(),
+          });
+        });
+      }
+      if (formula === 'raz_optimal') {
+        razEvResults = evResults || [];
+      }
+    }
 
-    if (!evResults || evResults.length === 0) {
+    if (!razEvResults || razEvResults.length === 0) {
       logger.info(`Inga EV-resultat kunde beräknas för match ${matchId}.`);
       continue;
     }
 
-    const sortedResults = [...evResults].sort((a, b) => (Number(a.line) || 0) - (Number(b.line) || 0));
+    const sortedResults = [...razEvResults].sort((a, b) => (Number(a.line) || 0) - (Number(b.line) || 0));
 
     let matchSummaryMessage = `⚽️  *${homeName} vs ${awayName}*  ⚽️
 
@@ -183,6 +260,29 @@ const calculateEvPerMatch = async () => {
   }
 
   logger.info("EV calculation per match completed.");
+
+  if (evBetDocs.length) {
+    try {
+      const ops = evBetDocs.map((doc) => {
+        const filter = {
+          eventId: doc.eventId,
+          snapshotTime: doc.snapshotTime ?? null,
+          formula: doc.formula,
+          selection: doc.selection,
+          line: doc.line,
+          scope: doc.scope,
+          criterionLabel: doc.criterionLabel,
+        };
+        return { replaceOne: { filter, replacement: doc, upsert: true } };
+      });
+      const res = await evBetsCollection.bulkWrite(ops, { ordered: false });
+      const upserts = res.upsertedCount || 0;
+      const modified = res.modifiedCount || 0;
+      logger.success(`Sparade ${upserts} nya och uppdaterade ${modified} EV-spel i DB (ev-bets)`);
+    } catch (err) {
+      logger.error(`Kunde inte spara EV-spel i DB: ${err.message}`);
+    }
+  }
 };
 
 const main = async () => {

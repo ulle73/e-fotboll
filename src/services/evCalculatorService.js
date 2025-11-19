@@ -15,12 +15,12 @@ const ALLOWED_BETOFFERTYPE_IDS = [6];
  * @param {object} awayPlayerStats - Statistik för bortaspelaren.
  * @returns {object} Ett objekt med EV för över/under 2.5 mål, eller null om beräkning inte är möjlig.
  */
-export const calculateEvForMatch = (match, odds, homePlayerStats, awayPlayerStats) => {
+export const calculateEvForMatch = (match, odds, homePlayerStats, awayPlayerStats, formulaKey = 'raz_optimal') => {
   const homeName = match.event.homeName;
   const awayName = match.event.awayName;
   const matchId = match.event.id;
 
-  const expectedGoals = calculateExpectedGoals(homePlayerStats, awayPlayerStats);
+  const expectedGoals = calculateExpectedGoals(homePlayerStats, awayPlayerStats, formulaKey);
 
   const evResults = [];
 
@@ -93,6 +93,7 @@ export const calculateEvForMatch = (match, odds, homePlayerStats, awayPlayerStat
       evOver,
       evUnder,
       expectedGoals,
+      formula: formulaKey,
     });
   }
 
