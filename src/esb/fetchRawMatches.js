@@ -10,6 +10,7 @@ import {
   slugify,
   writeJson,
   runWithConcurrency,
+  valueFromCandidates,
 } from './utils.js';
 import * as logger from '../utils/logger.js';
 import { fetchJsonWithPuppeteer, shutdownPuppeteer } from './puppeteerFetch.js';
@@ -30,10 +31,12 @@ const URLS_PATH = pathRelativeToRoot('config', 'urls.json');
 const RAW_ROOT = pathRelativeToRoot('data', 'esb', 'raw_matches');
 const MAX_PAGES = 200;
 const RECENT_TOURNAMENT_PAGES = 5; // Begränsa till senaste X sidor per spelare för att snabba upp hämtningen.
-const MAX_MATCHES_PER_PLAYER = 20; // Högst N matcher per spelare per körning.
+const MAX_MATCHES_PER_PLAYER = 50; // Högst N matcher per spelare per körning.
 const DEFAULT_SINCE_HOURS = 48;
 const LAST_RUN_COLLECTION = 'esb_metadata';
 const LAST_RUN_DOC_ID = 'fetchRawMatchesLastRun';
+const FUTURE_MATCH_GRACE_MINUTES = 5;
+const FUTURE_MATCH_GRACE_MS = FUTURE_MATCH_GRACE_MINUTES * 60 * 1000;
 
 const fetchJson = async (url, timeoutMs = 20000) => fetchJsonWithPuppeteer(url, timeoutMs);
 
@@ -78,6 +81,75 @@ const getMatchDate = (match) =>
 const toTs = (value) => {
   const ms = value ? Date.parse(value) : NaN;
   return Number.isFinite(ms) ? ms : 0;
+};
+
+const parseScoreString = (value) => {
+  if (typeof value !== 'string') return null;
+  const parts = value.split(/[:\-]/).map((v) => v.trim());
+  if (parts.length !== 2) return null;
+  const [home, away] = parts.map((v) => Number.parseInt(v, 10));
+  if (Number.isFinite(home) && Number.isFinite(away)) {
+    return { home, away };
+  }
+  return null;
+};
+
+const toNumber = (val) => {
+  if (val === undefined || val === null || Number.isNaN(val)) return null;
+  const num = Number(val);
+  return Number.isFinite(num) ? num : null;
+};
+
+const getScoreValue = (match, side) => {
+  const directCandidates =
+    side === 'home'
+      ? ['goalsHome', 'homeGoals', 'homeScore', 'home_score', 'scoreHome', 'home', 'score1']
+      : ['goalsAway', 'awayGoals', 'awayScore', 'away_score', 'scoreAway', 'away', 'score2'];
+
+  for (const field of directCandidates) {
+    const num = toNumber(match?.[field]);
+    if (num !== null) return num;
+  }
+
+  const participantField = side === 'home' ? 'participant1' : 'participant2';
+  const shortField = side === 'home' ? 'p1' : 'p2';
+  const participantObj = match?.[participantField] || match?.[shortField];
+  const participantScore = toNumber(participantObj?.score);
+  if (participantScore !== null) return participantScore;
+
+  const nestedSources = ['score', 'result', 'finalScore', 'finalResult', 'fulltime', 'ft'];
+  for (const src of nestedSources) {
+    const container = match?.[src];
+    if (typeof container === 'object' && container !== null) {
+      const num = toNumber(
+        valueFromCandidates(container, [
+          side,
+          `${side}Score`,
+          `${side}_score`,
+          `${side}Goals`,
+          `${side}_goals`,
+          side === 'home' ? 'home_score' : 'away_score',
+        ]),
+      );
+      if (num !== null) return num;
+    } else if (typeof container === 'string') {
+      const parsed = parseScoreString(container);
+      if (parsed) return side === 'home' ? parsed.home : parsed.away;
+    }
+  }
+
+  const resultString =
+    match?.resultString || match?.scoreString || match?.score_line || match?.result || match?.score;
+  const parsed = parseScoreString(resultString);
+  if (parsed) return side === 'home' ? parsed.home : parsed.away;
+
+  return null;
+};
+
+const matchHasFinalScore = (match) => {
+  const homeScore = getScoreValue(match, 'home');
+  const awayScore = getScoreValue(match, 'away');
+  return Number.isFinite(homeScore) && Number.isFinite(awayScore);
 };
 
 const parseSinceTs = async (db) => {
@@ -238,6 +310,8 @@ const processPlayer = async (player, urls, sinceTs, db) => {
   let fetchedMatches = 0;
   const allRawRecords = []; // New array to collect records
   let consecutiveBlockedTournaments = 0;
+  const nowTs = Date.now();
+  let insertedForPlayer = 0;
 
   const template = urls.api?.participantsTournaments;
   if (!template) throw new Error('participantsTournaments saknas i urls.json');
@@ -318,6 +392,21 @@ const processPlayer = async (player, urls, sinceTs, db) => {
         for (const match of matchPayload.matches) {
           const id = getMatchId(match);
           const ts = toTs(getMatchDate(match));
+          const kickoffIsoRaw = getMatchDate(match);
+
+          if (ts && ts > nowTs + FUTURE_MATCH_GRACE_MS) {
+            logger.debug?.(
+              `Hoppar över framtida match ${id ?? 'okänd'} (kickoff ${new Date(ts).toISOString()})`
+            );
+            continue;
+          }
+
+          if (!matchHasFinalScore(match)) {
+            logger.debug?.(
+              `Hoppar över match ${id ?? 'okänd'} utan färdigt resultat (kickoff ${kickoffIsoRaw ?? 'okänd'})`
+            );
+            continue;
+          }
 
           // Om matchen är äldre än sinceTs, eller redan sedd, sluta bearbeta fler matcher i denna turnering
           if (ts && ts < sinceTs) {
@@ -378,11 +467,14 @@ const processPlayer = async (player, urls, sinceTs, db) => {
   if (finalRawRecords.length > 0) {
     try {
       await db.collection('esb_raw_matches').insertMany(finalRawRecords, { ordered: false });
+      insertedForPlayer = finalRawRecords.length;
       logger.success(`Sparade ${finalRawRecords.length} rå-matcher till DB för ${player.nickname}`);
     } catch (err) {
       logger.error(`Kunde inte spara rå-matcher till DB för ${player.nickname}: ${err.message}`);
     }
   }
+
+  return insertedForPlayer;
 };
 
 export const main = async () => {
@@ -404,15 +496,17 @@ export const main = async () => {
 
     const playerTasks = players.map((player) => async () => {
       try {
-        await processPlayer(player, urls, sinceTs, db);
+        return await processPlayer(player, urls, sinceTs, db);
       } catch (err) {
         logger.error(`Fel vid process för spelare ${player.nickname}: ${err.message}`);
+        return 0;
       }
     });
-    await runWithConcurrency(playerTasks, 2);
+    const insertedCounts = await runWithConcurrency(playerTasks, 2);
+    const totalInserted = insertedCounts.reduce((sum, value) => sum + (value || 0), 0);
 
     await saveLastRun(runIso, db);
-    logger.success('Klar med fetchRawMatches');
+    logger.success(`Klar med fetchRawMatches – totalt ${totalInserted} rå-matcher sparade i DB`);
   } finally {
     // await shutdownPuppeteer(); // Moved to index.js
     // await closeDb(); // Moved to index.js

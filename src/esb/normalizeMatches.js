@@ -190,6 +190,19 @@ const toFirstHalfScore = (value) => {
   return Number.isFinite(num) ? num : null;
 };
 
+const firstExistingValue = (candidates = []) => {
+  for (const value of candidates) {
+    if (value !== undefined && value !== null) return value;
+  }
+  return null;
+};
+
+const toNumericId = (value) => {
+  if (value === null || value === undefined) return null;
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+};
+
 const normalizeMatch = (match, context) => {
   const dateValue = getDateValue(match);
   const mode = getMode(match) || 'unknown';
@@ -217,6 +230,25 @@ const normalizeMatch = (match, context) => {
     match?.awayPrevPeriodsScores ??
     match?.prevPeriodsScores?.away ??
     null;
+  const rawMatchId = firstExistingValue([
+    match?.matchId,
+    match?.match_id,
+    match?.matchID,
+    match?.matchid,
+    match?.id,
+    match?._id,
+  ]);
+  const rawEventId = firstExistingValue([
+    match?.eventId,
+    match?.event_id,
+    match?.eventID,
+    match?.eventid,
+    match?.event?.id,
+    match?.event?._id,
+    match?.event?.eventId,
+    match?.event?.event_id,
+    match?.event?.eventID,
+  ]);
 
   return {
     esbMatchId,
@@ -230,6 +262,9 @@ const normalizeMatch = (match, context) => {
     goalsAway: Number.isFinite(goalsAway) ? goalsAway : null,
     totalGoals,
     rawIds: [context.relativePath],
+    matchId: toNumericId(rawMatchId),
+    eventId: toNumericId(rawEventId),
+    corrected: false,
     prevPeriodsScoresHome: toFirstHalfScore(prevHomeRaw),
     prevPeriodsScoresAway: toFirstHalfScore(prevAwayRaw),
   };
@@ -261,6 +296,12 @@ const deduplicateMatches = (rawEntries) => {
       if (existing) {
         if (!existing.rawIds.includes(entry.relativePath)) {
           existing.rawIds.push(entry.relativePath);
+        }
+        if (!existing.matchId && normalized.matchId) {
+          existing.matchId = normalized.matchId;
+        }
+        if (!existing.eventId && normalized.eventId) {
+          existing.eventId = normalized.eventId;
         }
       } else {
         map.set(key, normalized);
