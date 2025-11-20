@@ -263,9 +263,10 @@ const calculateEvPerMatch = async () => {
       })
       .slice(0, TELEGRAM_MAX_LINES);
 
-    let matchSummaryMessage = `⏰ ${formatKickoff(kickoffDate)}
+    let matchSummaryMessage = `
+⏰ ${formatKickoff(kickoffDate)}
 
-⚽️ ${homeName} vs ${awayName} ⚽️
+⚽️ ${homeName} vs ${awayName}
 
 `;
     const plays = [];
