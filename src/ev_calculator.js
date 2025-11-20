@@ -263,11 +263,9 @@ const calculateEvPerMatch = async () => {
       })
       .slice(0, TELEGRAM_MAX_LINES);
 
-    let matchSummaryMessage = `⏰  ${formatKickoff(kickoffDate)}
+    let matchSummaryMessage = `⏰ ${formatKickoff(kickoffDate)}
 
-⚽️  *${homeName} vs ${awayName}*  ⚽️
-
--------------------------
+⚽️ ${homeName} vs ${awayName} ⚽️
 
 `;
     const plays = [];
@@ -286,7 +284,7 @@ const calculateEvPerMatch = async () => {
 
       if (scopeAllowed && (shouldShowAllEv || evOver > evThreshold) && overUnit !== null) {
         plays.push({
-          label: `⬆️  Over ${line}`,
+          label: `⬆️ Over ${line}`,
           line,
           odds: overOdds,
           trueOdds: trueOverOdds,
@@ -303,7 +301,7 @@ const calculateEvPerMatch = async () => {
 
       if (scopeAllowed && (shouldShowAllEv || evUnder > evThreshold) && underUnit !== null) {
         plays.push({
-          label: `⬇️  Under ${line}`,
+          label: `⬇️ Under ${line}`,
           line,
           odds: underOdds,
           trueOdds: trueUnderOdds,
@@ -359,16 +357,18 @@ const calculateEvPerMatch = async () => {
 
     const messageSections = selectedPlays.map((play) => {
       const unitLine = formatUnitLabel(play.unit);
-      const unitSection = unitLine ? `📏  Unit: ${unitLine}\n` : '';
-      return `${play.label}
-🏷️  ${play.scopeLabel}
-🎲  Odds: ${play.odds}
-${unitSection}🎯  True odds: ${play.trueOdds}
-💰  EV: ${play.ev}`;
+      const lines = [
+        play.label,
+        `🏷️ ${play.scopeLabel}`,
+        `🎲 Odds: ${play.odds}`,
+      ];
+      if (unitLine) {
+        lines.push(`💰 Unit: ${unitLine}`);
+      }
+      return lines.join('\n');
     });
 
-    matchSummaryMessage +=
-      messageSections.join('\n-------------------------\n\n') + '\n\n-------------------------\n';
+    matchSummaryMessage += messageSections.join('\n\n');
 
     // if (eventUrl) {
     //   matchSummaryMessage += `🔗 ${eventUrl}\n`;
