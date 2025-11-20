@@ -164,29 +164,42 @@ const main = async () => {
       else total.losses += 1;
     }
 
-    const rows = Array.from(aggregate.values()).sort((a, b) => {
-      if (a.formula === b.formula) return a.scope.localeCompare(b.scope);
-      return a.formula.localeCompare(b.formula);
-    });
-
-    const asRowString = (row) => {
+    const rows = Array.from(aggregate.values()).map((row) => {
       const expectedPerBet =
         row.bets && row.expectedSum !== 0 ? row.expectedSum / row.bets : 0;
       const actualPerBet =
         row.bets && row.actualSum !== 0 ? row.actualSum / row.bets : 0;
       const roi =
         row.bets && row.actualSum !== 0
-          ? formatPct(row.actualSum / row.bets)
-          : '0.00%';
-      const expectedPct = formatPct(expectedPerBet);
-      const actualPct = formatPct(actualPerBet);
+          ? row.actualSum / row.bets
+          : 0;
+      return {
+        ...row,
+        expectedPerBet,
+        actualPerBet,
+        roi,
+      };
+    });
+
+    rows.sort((a, b) => {
+      if (a.expectedPerBet === b.expectedPerBet) {
+        if (a.formula === b.formula) return a.scope.localeCompare(b.scope);
+        return a.formula.localeCompare(b.formula);
+      }
+      return a.expectedPerBet - b.expectedPerBet;
+    });
+
+    const asRowString = (row) => {
+      const expectedPct = formatPct(row.expectedPerBet);
+      const actualPct = formatPct(row.actualPerBet);
+      const roiPct = formatPct(row.roi);
       return `${row.formula.padEnd(16)} | ${row.scope.padEnd(9)} | ${String(
         row.bets,
       ).padStart(5)} | ${String(row.wins).padStart(5)} | ${String(
         row.pushes,
       ).padStart(5)} | ${String(row.losses).padStart(5)} | ${expectedPct.padStart(
         10,
-      )} | ${actualPct.padStart(10)} | ${roi.padStart(8)}`;
+      )} | ${actualPct.padStart(10)} | ${roiPct.padStart(8)}`;
     };
 
     console.log('\nEV resultat per formula och scope (1u insats):');
