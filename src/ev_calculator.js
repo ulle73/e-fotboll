@@ -263,9 +263,9 @@ const calculateEvPerMatch = async () => {
       })
       .slice(0, TELEGRAM_MAX_LINES);
 
-    let matchSummaryMessage = `⚽️  *${homeName} vs ${awayName}*  ⚽️
+    let matchSummaryMessage = `⏰  ${formatKickoff(kickoffDate)}
 
-⏰  ${formatKickoff(kickoffDate)}
+⚽️  *${homeName} vs ${awayName}*  ⚽️
 
 -------------------------
 
@@ -359,20 +359,20 @@ const calculateEvPerMatch = async () => {
 
     const messageSections = selectedPlays.map((play) => {
       const unitLine = formatUnitLabel(play.unit);
+      const unitSection = unitLine ? `📏  Unit: ${unitLine}\n` : '';
       return `${play.label}
 🏷️  ${play.scopeLabel}
 🎲  Odds: ${play.odds}
-🎯  True odds: ${play.trueOdds}
-💰  EV: ${play.ev}
-${unitLine ? `📏  Unit: ${unitLine}\n` : ''}`;
+${unitSection}🎯  True odds: ${play.trueOdds}
+💰  EV: ${play.ev}`;
     });
 
     matchSummaryMessage +=
       messageSections.join('\n-------------------------\n\n') + '\n\n-------------------------\n';
 
-    if (eventUrl) {
-      matchSummaryMessage += `🔗 ${eventUrl}\n`;
-    }
+    // if (eventUrl) {
+    //   matchSummaryMessage += `🔗 ${eventUrl}\n`;
+    // }
 
     await bot.sendMessage(match.chatId || process.env.TELEGRAM_CHAT_ID, matchSummaryMessage, {
       parse_mode: 'Markdown',
