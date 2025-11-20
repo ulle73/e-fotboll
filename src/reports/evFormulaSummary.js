@@ -9,6 +9,13 @@ const parseArgs = () => {
     const value = rest.length ? rest.join('=') : true;
     args[key] = value;
   });
+  if (args['range-odds']) {
+    const [min, max] = String(args['range-odds'])
+      .split('-')
+      .map((v) => Number(v));
+    if (Number.isFinite(min)) args['min-odds'] = min;
+    if (Number.isFinite(max)) args['max-odds'] = max;
+  }
   return args;
 };
 
@@ -100,6 +107,8 @@ const main = async () => {
 
     const evMin = toNumber(args['min-ev']) ?? 0;
     const evMax = toNumber(args['max-ev']);
+    const minOdds = toNumber(args['min-odds']);
+    const maxOdds = toNumber(args['max-odds']);
 
     const aggregate = new Map();
     const totalsByFormula = new Map();
@@ -113,6 +122,13 @@ const main = async () => {
         continue;
       }
       if (Number.isFinite(evMax) && expectedValue > evMax) {
+        continue;
+      }
+      const odds = toNumber(bet.offeredOdds);
+      if (Number.isFinite(minOdds) && (!Number.isFinite(odds) || odds < minOdds)) {
+        continue;
+      }
+      if (Number.isFinite(maxOdds) && (!Number.isFinite(odds) || odds > maxOdds)) {
         continue;
       }
       const formula = bet.formula || 'unknown';
