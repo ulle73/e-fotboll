@@ -491,11 +491,15 @@ export const main = async () => {
   const runIso = nowIso();
   const playerArg = process.argv.find((arg) => arg.startsWith('--player='));
   const playerFilter = playerArg ? playerArg.split('=').slice(1).join('=').trim() : null;
-  logger.step(
-    playerFilter
-      ? `Hämtar matcher för spelare "${playerFilter}" sedan ${new Date(sinceTs).toISOString()}`
-      : `Hämtar matcher sedan ${new Date(sinceTs).toISOString()}`,
-  );
+  const allPlayersFlag = process.argv.includes('--all-players');
+  const sinceLabel = new Date(sinceTs).toISOString();
+  if (playerFilter) {
+    logger.step(`Hämtar matcher för spelare "${playerFilter}" sedan ${sinceLabel}`);
+  } else if (allPlayersFlag) {
+    logger.step(`Hämtar matcher för spelare från player_stats sedan ${sinceLabel}`);
+  } else {
+    logger.step(`Hämtar matcher sedan ${sinceLabel}`);
+  }
 
   const urls = await readJson(URLS_PATH);
   if (!urls) throw new Error('Kunde inte läsa config/urls.json');
@@ -503,22 +507,56 @@ export const main = async () => {
   await ensureDir(RAW_ROOT);
 
   try {
-    const playerQuery = { source: 'esportsbattle' };
-    if (playerFilter) {
-      playerQuery.nickname = { $regex: new RegExp(`^${playerFilter}$`, 'i') };
-    }
-    const players = await db.collection('esb_players').find(playerQuery).toArray();
-    if (!players.length) {
-      throw new Error(
-        playerFilter
-          ? `Ingen spelare hittades i DB med nickname "${playerFilter}" (esb_players).`
-          : `Inga spelare hittades i DB (esb_players). Kör fetchAllPlayers först.`,
+    let players = [];
+    if (allPlayersFlag) {
+      const statsPlayers = await db
+        .collection('player_stats')
+        .find({ source: 'esportsbattle' }, { projection: { playerNick: 1 } })
+        .toArray();
+      const nicknames = [
+        ...new Set(statsPlayers.map((p) => p.playerNick).filter(Boolean)),
+      ];
+      if (!nicknames.length) {
+        throw new Error('Inga spelare hittades i player_stats att använda för --all-players.');
+      }
+      players = await db
+        .collection('esb_players')
+        .find({
+          source: 'esportsbattle',
+          nickname: { $in: nicknames },
+        })
+        .toArray();
+      const missing = nicknames.filter(
+        (nick) => !players.some((p) => (p.nickname || '').toLowerCase() === nick.toLowerCase()),
       );
+      if (missing.length) {
+        logger.warn(
+          `Hittade inte ${missing.length} player_stats-spelare i esb_players (exempel: ${missing
+            .slice(0, 5)
+            .join(', ')}).`,
+        );
+      }
+      logger.info(
+        `--all-players aktivt: bearbetar ${players.length} spelare hämtade från player_stats.`,
+      );
+    } else {
+      const playerQuery = { source: 'esportsbattle' };
+      if (playerFilter) {
+        playerQuery.nickname = { $regex: new RegExp(`^${playerFilter}$`, 'i') };
+      }
+      players = await db.collection('esb_players').find(playerQuery).toArray();
+      if (!players.length) {
+        throw new Error(
+          playerFilter
+            ? `Ingen spelare hittades i DB med nickname "${playerFilter}" (esb_players).`
+            : `Inga spelare hittades i DB (esb_players). Kör fetchAllPlayers först.`,
+        );
+      }
     }
 
     const playerTasks = players.map((player) => async () => {
       try {
-        return await processPlayer(player, urls, sinceTs, db, Boolean(playerFilter));
+        return await processPlayer(player, urls, sinceTs, db, Boolean(playerFilter || allPlayersFlag));
       } catch (err) {
         logger.error(`Fel vid process för spelare ${player.nickname}: ${err.message}`);
         return 0;

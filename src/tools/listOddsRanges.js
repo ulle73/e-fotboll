@@ -1,3 +1,4 @@
+import fs from 'fs/promises';
 import { getDb, closeDb } from '../db/mongoClient.js';
 
 const parseArgs = () => {
@@ -44,6 +45,28 @@ const formatRangeLabel = (min, max) => {
 
 const formatPct = (value) => `${(value * 100).toFixed(2)}%`;
 
+const loadUnitRules = async () => {
+  try {
+    const jsonPath = new URL('../../config/telegramUnitRules.json', import.meta.url);
+    const raw = await fs.readFile(jsonPath, 'utf-8');
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (err) {
+    console.warn(`Kunde inte läsa telegramUnitRules.json: ${err.message}`);
+    return [];
+  }
+};
+
+const intersectRange = (aMin = Number.NEGATIVE_INFINITY, aMax = Number.POSITIVE_INFINITY, bMin = Number.NEGATIVE_INFINITY, bMax = Number.POSITIVE_INFINITY) => {
+  const lower = Math.max(aMin, bMin);
+  const upper = Math.min(aMax, bMax);
+  if (lower >= upper) return null;
+  const bounds = {};
+  if (Number.isFinite(lower) && lower !== Number.NEGATIVE_INFINITY) bounds.$gte = lower;
+  if (Number.isFinite(upper) && upper !== Number.POSITIVE_INFINITY) bounds.$lt = upper;
+  return bounds;
+};
+
 const main = async () => {
   const args = parseArgs();
   const start = parseFloatSafe(args.min, 1);
@@ -53,31 +76,96 @@ const main = async () => {
   const maxEv = parseFloatSafe(args['max-ev'], null);
   const selectionValues = parseList(args.selection);
   const scopeValues = parseList(args.scope)?.map((s) => s.toLowerCase());
-
   const formulaValues = parseList(args.formula);
+  const unitExact = parseFloatSafe(args.unit, null);
+  const unitRange =
+    typeof args['unit-range'] === 'string'
+      ? args['unit-range'].split('-').map((v) => parseFloatSafe(v, null))
+      : null;
+
   const selectionFilter = selectionValues?.length ? { selection: { $in: selectionValues } } : {};
   const scopeFilter = scopeValues?.length ? { scope: { $in: scopeValues } } : {};
   const formulaFilter = formulaValues?.length ? { formula: { $in: formulaValues } } : {};
   const baseFilter = { ...selectionFilter, ...scopeFilter, ...formulaFilter };
   const ranges = buildRanges(start, end, step);
+  let unitRules = [];
+  if (unitExact !== null || (unitRange && unitRange.length === 2)) {
+    const rules = await loadUnitRules();
+    unitRules = rules.filter((rule) => {
+      const unit = Number(rule.unit);
+      if (!Number.isFinite(unit)) return false;
+      if (unitExact !== null && unit !== unitExact) return false;
+      if (unitRange && unitRange.length === 2) {
+        const [uMin, uMax] = unitRange;
+        if (Number.isFinite(uMin) && unit < uMin) return false;
+        if (Number.isFinite(uMax) && unit > uMax) return false;
+      }
+      return true;
+    });
+    if (!unitRules.length) {
+      console.log('Inga unit-regler matchade kriteriet, ingen data att visa.');
+      return;
+    }
+  }
 
   const db = await getDb();
   try {
     const col = db.collection('ev-bets');
-  const evFilter = { ...(Number.isFinite(minEv) ? { $gte: minEv } : {}), ...(Number.isFinite(maxEv) ? { $lte: maxEv } : {}) };
-  const baseQuery = {
-    ...baseFilter,
-    ...(Object.keys(evFilter).length ? { ev: evFilter } : { ev: { $gt: 0 } }),
-  };
-    const oldestBet = await col.find(baseQuery).sort({ kickoff: 1 }).limit(1).next();
-    const newestBet = await col.find(baseQuery).sort({ kickoff: -1 }).limit(1).next();
+    const baseEvCondition = {
+      ...(Number.isFinite(minEv) ? { $gte: minEv } : { $gt: 0 }),
+      ...(Number.isFinite(maxEv) ? { $lte: maxEv } : {}),
+    };
+    const baseQuery = { ...baseFilter };
+    const oldestBet = await col
+      .find({ ...baseQuery, ev: baseEvCondition })
+      .sort({ kickoff: 1 })
+      .limit(1)
+      .next();
+    const newestBet = await col
+      .find({ ...baseQuery, ev: baseEvCondition })
+      .sort({ kickoff: -1 })
+      .limit(1)
+      .next();
 
     const stats = [];
     for (const range of ranges) {
-      const query = {
-        ...baseQuery,
-        offeredOdds: { $gte: range.min, ...(Number.isFinite(range.max) ? { $lt: range.max } : {}) },
-      };
+      let query;
+      if (unitRules.length) {
+        const orClauses = [];
+        unitRules.forEach((rule) => {
+          const oddsClause = intersectRange(
+            range.min,
+            Number.isFinite(range.max) ? range.max : Number.POSITIVE_INFINITY,
+            rule.minOdds,
+            rule.maxOdds,
+          );
+          if (!oddsClause) return;
+
+          const evClause = intersectRange(
+            baseEvCondition.$gte ?? baseEvCondition.$gt ?? Number.NEGATIVE_INFINITY,
+            baseEvCondition.$lte ?? Number.POSITIVE_INFINITY,
+            rule.minEv,
+            rule.maxEv,
+          );
+          if (!evClause) return;
+          orClauses.push({
+            ev: evClause,
+            offeredOdds: oddsClause,
+          });
+        });
+        if (!orClauses.length) continue;
+        query = { ...baseQuery, $or: orClauses };
+      } else {
+        query = {
+          ...baseQuery,
+          ev: baseEvCondition,
+          offeredOdds: {
+            $gte: range.min,
+            ...(Number.isFinite(range.max) ? { $lt: range.max } : {}),
+          },
+        };
+      }
+
       const count = await col.countDocuments(query);
       stats.push({ ...range, count });
     }
@@ -88,7 +176,7 @@ const main = async () => {
       scopeValues?.length ? `scope=${scopeValues.join(',')}` : 'scope=alla'
     }, ${selectionValues?.length ? `selection=${selectionValues.join(',')}` : 'selection=alla'}, ${
       formulaValues?.length ? `formula=${formulaValues.join(',')}` : 'formula=alla'
-    }, EV ${
+    }, unit ${unitExact !== null ? unitExact : unitRange && unitRange.length === 2 ? `${unitRange[0]}-${unitRange[1]}` : 'alla'}, EV ${
       Number.isFinite(minEv) ? `≥ ${formatPct(minEv).replace('%', '')}%` : '> 0%'
     }${Number.isFinite(maxEv) ? ` och ≤ ${formatPct(maxEv).replace('%', '')}%` : ''}`
   );
@@ -101,7 +189,14 @@ const main = async () => {
     let totalCount = 0;
     stats.forEach((row) => {
       totalCount += row.count;
-      console.log(`• ${formatRangeLabel(row.min, row.max).padEnd(12)} : ${row.count.toString().padStart(6)} spel`);
+    });
+    stats.forEach((row) => {
+      const percentage = totalCount > 0 ? ((row.count / totalCount) * 100).toFixed(2) : '0.00';
+      console.log(
+        `• ${formatRangeLabel(row.min, row.max).padEnd(12)} : ${row.count
+          .toString()
+          .padStart(6)} spel (${percentage}%)`,
+      );
     });
     console.log('------------------------------------');
     console.log(`Totalt antal spel: ${totalCount}`);
