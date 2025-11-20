@@ -1,3 +1,4 @@
+import fs from 'fs/promises';
 import { closeBrowser } from "./utils/browser.js";
 import * as logger from "./utils/logger.js";
 import { getDb, closeDb } from "./db/mongoClient.js";
@@ -7,6 +8,54 @@ import { calculateEvForMatch } from './services/evCalculatorService.js'; // Impo
 import { formatLocalDateTime } from './utils/time.js';
 import { buildUnibetEventUrl } from './utils/unibetLinks.js';
 import { nowIso } from './esb/utils.js';
+
+const TELEGRAM_SCOPE_WHITELIST = new Set(['total']); // Lägg till 'home', 'away', 'firstHalf' vid behov
+const TELEGRAM_RULES_PATH = new URL('../config/telegramUnitRules.json', import.meta.url);
+let TELEGRAM_UNIT_RULES = [];
+
+const resolveNumber = (value, fallback = null) =>
+  Number.isFinite(Number(value)) ? Number(value) : fallback;
+
+const loadTelegramUnitRules = async () => {
+  try {
+    const raw = await fs.readFile(TELEGRAM_RULES_PATH, 'utf-8');
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (err) {
+    logger.warn(`Kunde inte läsa telegramUnitRules.json: ${err.message}`);
+    return [];
+  }
+};
+
+const pickTelegramUnit = (odds, evValue) => {
+  const numericOdds = Number(odds);
+  const numericEv = Number(evValue);
+  if (!Number.isFinite(numericOdds) || !Number.isFinite(numericEv)) return null;
+
+  for (const rule of TELEGRAM_UNIT_RULES) {
+    const minOdds = resolveNumber(rule.minOdds, -Infinity);
+    const maxOdds = resolveNumber(rule.maxOdds, Infinity);
+    const minEv = resolveNumber(rule.minEv, 0);
+    const maxEv = resolveNumber(rule.maxEv, Infinity);
+    if (
+      numericOdds >= minOdds &&
+      numericOdds <= maxOdds &&
+      numericEv >= minEv &&
+      numericEv <= maxEv
+    ) {
+      const unit = Number(rule.unit);
+      return Number.isFinite(unit) ? unit : null;
+    }
+  }
+  return null;
+};
+
+const formatUnitLabel = (unit) => {
+  if (!Number.isFinite(unit)) return '';
+  const rounded =
+    Number.isInteger(unit) ? unit.toFixed(0) : unit.toFixed(2).replace(/\.?0+$/, '');
+  return `${rounded}u`;
+};
 
 const stopBotPollingSafely = async () => {
   if (typeof bot?.stopPolling === 'function') {
@@ -22,6 +71,9 @@ const stopBotPollingSafely = async () => {
 const calculateEvPerMatch = async () => {
   logger.info("Starting EV calculation per match...");
   const db = await getDb();
+  if (!TELEGRAM_UNIT_RULES.length) {
+    TELEGRAM_UNIT_RULES = await loadTelegramUnitRules();
+  }
 
   const unibetMatchesCollection = db.collection('unibet-matches');
   const unibetOddsCollection = db.collection('unibet-odds');
@@ -207,7 +259,15 @@ const calculateEvPerMatch = async () => {
 
       const plays = [];
 
-      if (shouldShowAllEv || evOver > evThreshold) {
+      const scopeAllowed = TELEGRAM_SCOPE_WHITELIST.has((result.scope || '').toLowerCase());
+      const overUnit = pickTelegramUnit(overOdds, evOver);
+      const underUnit = pickTelegramUnit(underOdds, evUnder);
+
+      if (
+        scopeAllowed &&
+        (shouldShowAllEv || evOver > evThreshold) &&
+        overUnit !== null
+      ) {
         plays.push({
           label: `⬆️  Over ${line}`,
           odds: overOdds,
@@ -215,10 +275,15 @@ const calculateEvPerMatch = async () => {
           ev: evOverPct,
           highlight: evOver > evThreshold,
           scopeLabel: criterionLabel,
+          unit: overUnit,
         });
       }
 
-      if (shouldShowAllEv || evUnder > evThreshold) {
+      if (
+        scopeAllowed &&
+        (shouldShowAllEv || evUnder > evThreshold) &&
+        underUnit !== null
+      ) {
         plays.push({
           label: `⬇️  Under ${line}`,
           odds: underOdds,
@@ -226,18 +291,20 @@ const calculateEvPerMatch = async () => {
           ev: evUnderPct,
           highlight: evUnder > evThreshold,
           scopeLabel: criterionLabel,
+          unit: underUnit,
         });
       }
 
       if (!plays.length) return;
 
       plays.forEach((play) => {
+        const unitLine = formatUnitLabel(play.unit);
         const section = `${play.label}
 🏷️  ${play.scopeLabel}
 🎲  Odds: ${play.odds}
 🎯  True odds: ${play.trueOdds}
 💰  EV: ${play.ev}
-`;
+${unitLine ? `📏  Unit: ${unitLine}\n` : ''}`;
         sections.push(section);
 
         // Vill du logga även negativa, byt shouldShowAllEv till true ovan
