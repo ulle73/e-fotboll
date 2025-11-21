@@ -1,10 +1,23 @@
 [
-  { "unit": 2, "minOdds": 1.6, "maxOdds": 2.5, "minEv": 0.7, "maxEv": null },
-  { "unit": 1.5, "minOdds": 1.6, "maxOdds": 2.5, "minEv": 0.35, "maxEv": 0.7 },
+
+  { "unit": 0.5, "minOdds": 1.6, "maxOdds": 2.5, "minEv": 0.08, "maxEv": 0.10 },
+  { "unit": 0.75, "minOdds": 1.6, "maxOdds": 2.5, "minEv": 0.10, "maxEv": 0.15 },
+  { "unit": 1.0, "minOdds": 1.6, "maxOdds": 2.5, "minEv": 0.15, "maxEv": 0.25 },
   { "unit": 1.25, "minOdds": 1.6, "maxOdds": 2.5, "minEv": 0.25, "maxEv": 0.35 },
-  { "unit": 1, "minOdds": 1.6, "maxOdds": 3.5, "minEv": 0.15, "maxEv": 0.25 },
-  { "unit": 0.75, "minOdds": 1.6, "maxOdds": 3.5, "minEv": 0.10, "maxEv": 0.15 },
-  { "unit": 0.5, "minOdds": 1.6, "maxOdds": 3.5, "minEv": 0.08, "maxEv": 0.10 },
-  { "unit": 0.5, "minOdds": 3.5, "maxOdds": 5, "minEv": 0.20, "maxEv": null },
-  { "unit": 0.5, "minOdds": 5, "maxOdds": 100, "minEv": 1.0, "maxEv": null }
+  { "unit": 1.5, "minOdds": 1.6, "maxOdds": 2.5, "minEv": 0.35, "maxEv": 0.70 },
+  { "unit": 2.0, "minOdds": 1.6, "maxOdds": 2.5, "minEv": 0.70, "maxEv": null },
+
+ 
+  { "unit": 0.5, "minOdds": 2.51, "maxOdds": 3.5, "minEv": 0.08, "maxEv": 0.10 },
+  { "unit": 0.75, "minOdds": 2.51, "maxOdds": 3.5, "minEv": 0.10, "maxEv": 0.15 },
+  { "unit": 1.0, "minOdds": 2.51, "maxOdds": 3.5, "minEv": 0.15, "maxEv": 0.25 },
+  { "unit": 1.25, "minOdds": 2.51, "maxOdds": 3.5, "minEv": 0.25, "maxEv": null },
+
+ 
+  { "unit": 0.5, "minOdds": 3.51, "maxOdds": 6.0, "minEv": 0.15, "maxEv": 0.50 },
+  { "unit": 0.75, "minOdds": 3.51, "maxOdds": 6.0, "minEv": 0.50, "maxEv": null },
+
+
+  { "unit": 0.5, "minOdds": 6.01, "maxOdds": 100.0, "minEv": 1.0, "maxEv": null }
+
 ]
