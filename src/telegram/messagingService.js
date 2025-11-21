@@ -66,7 +66,13 @@ export function selectPlaysForTelegram(telegramEvResults, config, unitRules) {
     const asPercent = (value) => `${((value ?? 0) * 100).toFixed(2)}%`;
     const formatTrueOdds = (prob) => (prob > 0 ? (1 / prob).toFixed(2) : 'N/A');
 
-    const prioritizedResults = [...telegramEvResults]
+    // 1. Filter by scope FIRST
+    const allowedScopeResults = telegramEvResults.filter(result => 
+        scopeWhitelist.has((result.scope || '').toLowerCase())
+    );
+
+    // 2. Prioritize and Slice the filtered results
+    const prioritizedResults = allowedScopeResults
         .sort((a, b) => {
             const scoreA = Math.max(a.evOver ?? -Infinity, a.evUnder ?? -Infinity);
             const scoreB = Math.max(b.evOver ?? -Infinity, b.evUnder ?? -Infinity);
@@ -80,9 +86,8 @@ export function selectPlaysForTelegram(telegramEvResults, config, unitRules) {
         const overUnit = pickTelegramUnit(overOdds, evOver, unitRules);
         const underUnit = pickTelegramUnit(underOdds, evUnder, unitRules);
 
-        const scopeAllowed = scopeWhitelist.has((scope || '').toLowerCase());
-
-        if (scopeAllowed && overUnit !== null) {
+        // No longer need scopeAllowed check here as it's done above
+        if (overUnit !== null) {
             plays.push({
                 label: `⬆️ Over ${line}`,
                 line,
@@ -98,7 +103,7 @@ export function selectPlaysForTelegram(telegramEvResults, config, unitRules) {
             });
         }
 
-        if (scopeAllowed && underUnit !== null) {
+        if (underUnit !== null) {
             plays.push({
                 label: `⬇️ Under ${line}`,
                 line,

@@ -7,40 +7,50 @@ import { buildUnibetEventUrl } from '../utils/unibetLinks.js';
  * @returns {Array} An array of plays with positive EV.
  */
 export function selectPositiveEvLines(telegramEvResults) {
-    const positiveEvPlays = [];
+    const totalPlays = [];
+    const homePlays = [];
+    const awayPlays = [];
+    const otherPlays = [];
 
     telegramEvResults.forEach(result => {
         const { line, overOdds, underOdds, probOver, probUnder, evOver, evUnder, criterionLabel, scope } = result;
 
-        // Check for positive EV on the "Over" bet
+        const createPlayObject = (selection, ev, odds, prob) => ({
+            label: `${selection === 'Over' ? '⬆️' : '⬇️'} ${selection} ${line}`,
+            selection,
+            line,
+            odds,
+            trueOdds: prob > 0 ? (1 / prob).toFixed(2) : 'N/A',
+            ev: `${(ev * 100).toFixed(2)}%`,
+            scopeLabel: criterionLabel || scope,
+            scope: scope,
+        });
+
         if (evOver > 0) {
-            positiveEvPlays.push({
-                label: `⬆️ Over ${line}`,
-                selection: 'Over',
-                line,
-                odds: overOdds,
-                trueOdds: probOver > 0 ? (1 / probOver).toFixed(2) : 'N/A',
-                ev: `${(evOver * 100).toFixed(2)}%`,
-                scopeLabel: criterionLabel || scope,
-            });
+            const play = createPlayObject('Over', evOver, overOdds, probOver);
+            if (play.scope === 'total') totalPlays.push(play);
+            else if (play.scope === 'home') homePlays.push(play);
+            else if (play.scope === 'away') awayPlays.push(play);
+            else otherPlays.push(play);
         }
 
-        // Check for positive EV on the "Under" bet
         if (evUnder > 0) {
-            positiveEvPlays.push({
-                label: `⬇️ Under ${line}`,
-                selection: 'Under',
-                line,
-                odds: underOdds,
-                trueOdds: probUnder > 0 ? (1 / probUnder).toFixed(2) : 'N/A',
-                ev: `${(evUnder * 100).toFixed(2)}%`,
-                scopeLabel: criterionLabel || scope,
-            });
+            const play = createPlayObject('Under', evUnder, underOdds, probUnder);
+            if (play.scope === 'total') totalPlays.push(play);
+            else if (play.scope === 'home') homePlays.push(play);
+            else if (play.scope === 'away') awayPlays.push(play);
+            else otherPlays.push(play);
         }
     });
 
-    // Sort by EV descending
-    return positiveEvPlays.sort((a, b) => parseFloat(b.ev) - parseFloat(a.ev));
+    const sortByLine = (a, b) => a.line - b.line;
+
+    totalPlays.sort(sortByLine);
+    homePlays.sort(sortByLine);
+    awayPlays.sort(sortByLine);
+    otherPlays.sort(sortByLine);
+
+    return [...totalPlays, ...homePlays, ...awayPlays, ...otherPlays];
 }
 
 /**
