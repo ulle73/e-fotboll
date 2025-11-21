@@ -143,7 +143,7 @@ async function runEvCalculation() {
 
         // --- Control Bot Logic ---
         if (controlBot && CONTROL_BOT_CHAT_ID) {
-            const positiveEvLines = selectPositiveEvLines(telegramEvResults);
+            const positiveEvLines = selectPositiveEvLines(telegramEvResults, unitRules);
             const controlMessage = formatControlMessage(positiveEvLines, match);
             await controlBot.sendMessage(CONTROL_BOT_CHAT_ID, controlMessage, { parse_mode: 'Markdown' });
         }
