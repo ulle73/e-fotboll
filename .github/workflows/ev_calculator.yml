@@ -54,5 +54,7 @@ jobs:
           MONGODB_DB_NAME: ${{ secrets.MONGODB_DB_NAME }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          CONTROL_BOT_TOKEN: ${{ secrets.CONTROL_BOT_TOKEN }}
+          CONTROL_BOT_CHAT_ID: ${{ secrets.CONTROL_BOT_CHAT_ID }}
           PUPPETEER_INFO: "--no-sandbox --disable-setuid-sandbox --disable-dev-shm-usage --no-zygote --no-first-run"
         run: node src/ev_calculator.js
