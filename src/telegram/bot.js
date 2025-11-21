@@ -7,7 +7,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Ladda miljövariabler från .env-filen
-dotenv.config({ path: path.resolve(__dirname, '../.env') });
+dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
 // Ersätt 'YOUR_TELEGRAM_BOT_TOKEN' med din faktiska token
 // Det är bäst att hämta token från miljövariabler för säkerhet

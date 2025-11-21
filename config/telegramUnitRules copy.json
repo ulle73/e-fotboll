@@ -1,5 +1,5 @@
 [
-  { "unit": 2, "minOdds": 1.6, "maxOdds": 2.5, "minEv": 0.7, "maxEv": null },
+  { "unit": 2, "minOdds": 1.6, "maxOdds": 2.5, "minEv": 0.7, "maxEv": 100000 },
   { "unit": 1.5, "minOdds": 1.6, "maxOdds": 2.5, "minEv": 0.35, "maxEv": 0.7 },
   { "unit": 1.25, "minOdds": 1.6, "maxOdds": 2.5, "minEv": 0.25, "maxEv": 0.35 },
   { "unit": 1, "minOdds": 1.6, "maxOdds": 3.5, "minEv": 0.15, "maxEv": 0.25 },
