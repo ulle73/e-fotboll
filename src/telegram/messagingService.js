@@ -150,9 +150,9 @@ export function formatTelegramMessage(selectedPlays, match) {
     const eventUrl = buildUnibetEventUrl(id);
 
     let matchSummaryMessage = `\n
-⏰ ${formatLocalDateTime(kickoffDate)}
+⏰  ${formatLocalDateTime(kickoffDate)}
 
-⚽️ ${homeName} vs ${awayName}
+⚽️  ${homeName} vs ${awayName}
 
 `;
 
@@ -160,11 +160,11 @@ export function formatTelegramMessage(selectedPlays, match) {
         const unitLine = formatUnitLabel(play.unit);
         const lines = [
           play.label,
-          `🏷️ ${play.scopeLabel}`,
-          `🎲 Odds: ${play.odds}`,
+          `🏷️  ${play.scopeLabel}`,
+          `🎲  Odds: ${play.odds}`,
         ];
         if (unitLine) {
-            lines.push(`💰 Unit: ${unitLine}`);
+            lines.push(`💰  Unit: ${unitLine}`);
         }
         return lines.join('\n');
     });
@@ -173,7 +173,7 @@ export function formatTelegramMessage(selectedPlays, match) {
 
 //     if (eventUrl) {
 //         matchSummaryMessage += `
-// 🔗 ${eventUrl}`;
+// 🔗  ${eventUrl}`;
 //     }
     return matchSummaryMessage;
 }

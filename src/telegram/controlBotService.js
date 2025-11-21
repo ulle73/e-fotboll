@@ -16,7 +16,7 @@ export function selectPositiveEvLines(telegramEvResults) {
         const { line, overOdds, underOdds, probOver, probUnder, evOver, evUnder, criterionLabel, scope } = result;
 
         const createPlayObject = (selection, ev, odds, prob) => ({
-            label: `${selection === 'Over' ? '⬆️' : '⬇️'} ${selection} ${line}`,
+            label: `${selection === 'Over' ? '⬆️' : '⬇️'}  ${selection} ${line}`,
             selection,
             line,
             odds,
