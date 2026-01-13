@@ -1,0 +1,67 @@
+name: Settle EV Bets
+
+on:
+  schedule:
+    - cron: "0 7 * * *"
+  workflow_dispatch:
+
+jobs:
+  settle-ev-bets:
+    runs-on: ubuntu-latest
+    env:
+      ESB_SITE_ROOT_URL: ${{ secrets.ESB_SITE_ROOT_URL }}
+      ESB_ROSTER_INDEX_URL: ${{ secrets.ESB_ROSTER_INDEX_URL }}
+      ESB_ROSTER_PROFILE_URL: ${{ secrets.ESB_ROSTER_PROFILE_URL }}
+      ESB_ROSTER_COMPARE_URL: ${{ secrets.ESB_ROSTER_COMPARE_URL }}
+      ESB_ROSTER_TOURNAMENTS_URL: ${{ secrets.ESB_ROSTER_TOURNAMENTS_URL }}
+      ESB_EVENT_RESULTS_URL: ${{ secrets.ESB_EVENT_RESULTS_URL }}
+      ESB_EVENT_MATCHES_URL: ${{ secrets.ESB_EVENT_MATCHES_URL }}
+      ESB_LEAGUE_INDEX_URL: ${{ secrets.ESB_LEAGUE_INDEX_URL }}
+      ESB_LOCATION_INDEX_URL: ${{ secrets.ESB_LOCATION_INDEX_URL }}
+      ESB_EVENT_INDEX_URL: ${{ secrets.ESB_EVENT_INDEX_URL }}
+      ODDS_STARTING_WITHIN_URL: ${{ secrets.ODDS_STARTING_WITHIN_URL }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install
+          fi
+
+      - name: Install Chrome deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgbm1 \
+            libnss3 \
+            libatk-bridge2.0-0 \
+            libx11-xcb1 \
+            libxcb-dri3-0 \
+            libxcb1 \
+            libxdamage1 \
+            libxfixes3 \
+            libxcomposite1 \
+            libxrandr2 \
+            libxi6 \
+            libcups2 \
+            libxkbcommon0 \
+            libdrm2 \
+            libasound2t64
+
+      - name: Run settle script
+        env:
+          NODE_ENV: production
+          MONGODB_URI: ${{ secrets.MONGODB_URI }}
+          MONGODB_DB_NAME: ${{ secrets.MONGODB_DB_NAME }}
+        run: node ./src/debug/settleEvBetsForMatch.js

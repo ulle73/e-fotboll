@@ -1,0 +1,19 @@
+{
+  "siteRoot": "env:ESB_SITE_ROOT_URL",
+  "pageRoutes": {
+    "rosterProfile": "env:ESB_ROSTER_PROFILE_URL",
+    "rosterCompare": "env:ESB_ROSTER_COMPARE_URL",
+    "rosterIndex": "env:ESB_ROSTER_INDEX_URL"
+  },
+  "apiRoutes": {
+    "eventResults": "env:ESB_EVENT_RESULTS_URL",
+    "leagueIndex": "env:ESB_LEAGUE_INDEX_URL",
+    "rosterTournaments": "env:ESB_ROSTER_TOURNAMENTS_URL", 
+    "eventIndex": "env:ESB_EVENT_INDEX_URL",  
+    "locationIndex": "env:ESB_LOCATION_INDEX_URL",
+    "eventMatches": "env:ESB_EVENT_MATCHES_URL"
+  },
+  "oddsFeed": {
+    "startingSoon": "env:ODDS_STARTING_WITHIN_URL"
+  }
+}

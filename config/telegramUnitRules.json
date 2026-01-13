@@ -1,0 +1,10 @@
+[
+
+
+  { "unit": 1.0, "minOdds": 1.6, "maxOdds": 2.5, "minEv": 0.15, "maxEv": 0.25 },
+  { "unit": 1.25, "minOdds": 1.6, "maxOdds": 2.5, "minEv": 0.25, "maxEv": 0.35 },
+  { "unit": 1.5, "minOdds": 1.6, "maxOdds": 2.5, "minEv": 0.35, "maxEv": 0.70 },
+  { "unit": 2.0, "minOdds": 1.6, "maxOdds": 2.5, "minEv": 0.70, "maxEv": null }
+
+
+]

@@ -1,0 +1,372 @@
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { nowIso, pathRelativeToRoot, readJson, writeJson } from './utils.js';
+import * as logger from '../utils/logger.js';
+import { getDb, closeDb } from '../db/mongoClient.js';
+
+// ---------------------------------
+// INFO url: (ingen extern URL; läser lokalt från data/esb/normalized_matches.json)
+// ---------------------------------
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const isMain = process.argv[1] && path.resolve(process.argv[1]) === __filename;
+
+
+const OUTPUT_PATH = pathRelativeToRoot('data', 'esb', 'player_stats.json');
+
+const normalizeModeKey = (modeRaw) => {
+  const val = (modeRaw ?? 'unknown').toString().toLowerCase();
+  if (val.includes('2x4min')) return '2x4';
+  if (val.includes('2x6')) return '2x6';
+  return val || 'unknown';
+};
+
+const toNumberSafe = (value) => {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : 0;
+};
+
+const toTimestamp = (value) => {
+  const ms = value ? new Date(value).getTime() : NaN;
+  return Number.isFinite(ms) ? ms : 0;
+};
+
+const summarize = (rows) => {
+  const totalMatches = rows.length;
+  const goalsFor = rows.reduce((sum, r) => sum + r.goalsFor, 0);
+  const goalsAgainst = rows.reduce((sum, r) => sum + r.goalsAgainst, 0);
+  const avgGoalsFor = totalMatches ? goalsFor / totalMatches : 0;
+  const avgGoalsAgainst = totalMatches ? goalsAgainst / totalMatches : 0;
+  const avgTotalGoals = totalMatches ? (goalsFor + goalsAgainst) / totalMatches : 0;
+
+  const firstHalfForSum = rows.reduce(
+    (sum, r) => (Number.isFinite(r.firstHalfFor) ? sum + r.firstHalfFor : sum),
+    0,
+  );
+  const firstHalfAgainstSum = rows.reduce(
+    (sum, r) => (Number.isFinite(r.firstHalfAgainst) ? sum + r.firstHalfAgainst : sum),
+    0,
+  );
+  const firstHalfForCount = rows.reduce(
+    (count, r) => (Number.isFinite(r.firstHalfFor) ? count + 1 : count),
+    0,
+  );
+  const firstHalfAgainstCount = rows.reduce(
+    (count, r) => (Number.isFinite(r.firstHalfAgainst) ? count + 1 : count),
+    0,
+  );
+  const firstHalfTotalSum = rows.reduce(
+    (sum, r) =>
+      Number.isFinite(r.firstHalfFor) && Number.isFinite(r.firstHalfAgainst)
+        ? sum + r.firstHalfFor + r.firstHalfAgainst
+        : sum,
+    0,
+  );
+  const firstHalfTotalCount = rows.reduce(
+    (count, r) =>
+      Number.isFinite(r.firstHalfFor) && Number.isFinite(r.firstHalfAgainst) ? count + 1 : count,
+    0,
+  );
+
+  const avgFirstHalfGoalsFor = firstHalfForCount ? firstHalfForSum / firstHalfForCount : 0;
+  const avgFirstHalfGoalsAgainst = firstHalfAgainstCount
+    ? firstHalfAgainstSum / firstHalfAgainstCount
+    : 0;
+  const avgFirstHalfTotalGoals = firstHalfTotalCount ? firstHalfTotalSum / firstHalfTotalCount : 0;
+
+  return {
+    totalMatches,
+    goalsFor,
+    goalsAgainst,
+    avgGoalsFor,
+    avgGoalsAgainst,
+    avgTotalGoals,
+    firstHalfGoalsFor: firstHalfForSum,
+    firstHalfGoalsAgainst: firstHalfAgainstSum,
+    firstHalfAvgGoalsFor: avgFirstHalfGoalsFor,
+    firstHalfAvgGoalsAgainst: avgFirstHalfGoalsAgainst,
+    firstHalfAvgTotalGoals: avgFirstHalfTotalGoals,
+  };
+};
+
+const summarizeWindow = (rows, limit) => summarize(rows.slice(0, limit));
+
+const weightedAverage = (weights, slices) => {
+  const metrics = [
+    'avgGoalsFor',
+    'avgGoalsAgainst',
+    'avgTotalGoals',
+    'firstHalfAvgGoalsFor',
+    'firstHalfAvgGoalsAgainst',
+    'firstHalfAvgTotalGoals',
+  ];
+  const entries = Object.entries(weights).filter(([key, weight]) => weight && slices[key]);
+  const totalWeight = entries.reduce((sum, [, weight]) => sum + weight, 0);
+  const result = Object.fromEntries(metrics.map((metric) => [metric, 0]));
+  if (!totalWeight) return result;
+
+  entries.forEach(([key, weight]) => {
+    const slice = slices[key] || {};
+    metrics.forEach((metric) => {
+      result[metric] += weight * (slice[metric] ?? 0);
+    });
+  });
+
+  metrics.forEach((metric) => {
+    result[metric] = result[metric] / totalWeight;
+  });
+
+  return result;
+};
+
+const median = (arr) => {
+  if (!arr.length) return 0;
+  const sorted = [...arr].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+};
+
+const trimmedMean = (arr, trimFraction = 0.1) => {
+  if (!arr.length) return 0;
+  const sorted = [...arr].sort((a, b) => a - b);
+  const trimCount = Math.floor(sorted.length * trimFraction);
+  const trimmed = sorted.slice(trimCount, sorted.length - trimCount || sorted.length);
+  if (!trimmed.length) return median(sorted);
+  const sum = trimmed.reduce((s, v) => s + v, 0);
+  return sum / trimmed.length;
+};
+
+const variance = (arr) => {
+  if (!arr.length) return 0;
+  const mean = arr.reduce((s, v) => s + v, 0) / arr.length;
+  const diffs = arr.map((v) => (v - mean) ** 2);
+  return diffs.reduce((s, v) => s + v, 0) / arr.length;
+};
+
+const calculateLeagueAverages = (matches) => {
+  if (!matches.length) return { avgTotalGoals: 3.5, avgHomeGoals: 1.75, avgAwayGoals: 1.75 };
+
+  const totals = matches.reduce((acc, match) => ({
+    totalGoals: acc.totalGoals + toNumberSafe(match.goalsHome) + toNumberSafe(match.goalsAway),
+    homeGoals: acc.homeGoals + toNumberSafe(match.goalsHome),
+    awayGoals: acc.awayGoals + toNumberSafe(match.goalsAway),
+    matches: acc.matches + 1
+  }), { totalGoals: 0, homeGoals: 0, awayGoals: 0, matches: 0 });
+
+  return {
+    avgTotalGoals: totals.totalGoals / totals.matches,
+    avgHomeGoals: totals.homeGoals / totals.matches,
+    avgAwayGoals: totals.awayGoals / totals.matches
+  };
+};
+
+const buildStats = (normalized) => {
+  // Filtrera bort matcher som inte har resultat (dvs. planerade matcher)
+  const completedMatches = normalized.filter(
+    (match) => match.goalsHome !== null && match.goalsAway !== null,
+  );
+
+  // Calculate league averages from all completed matches (since you only run 2x4)
+  const allMatchesForAverages = completedMatches; // Use all since you only do 2x4
+  logger.info(`Using ${allMatchesForAverages.length} completed matches for league averages`);
+  if (allMatchesForAverages.length > 0) {
+    const sampleModes = allMatchesForAverages.slice(0, 5).map(m => `${m.mode} (${normalizeModeKey(m.mode)})`).join(', ');
+    logger.info(`Sample match modes: ${sampleModes}`);
+  }
+  const leagueAverages = calculateLeagueAverages(allMatchesForAverages);
+  logger.info(`Calculated league averages: ${JSON.stringify(leagueAverages)}`);
+
+  const map = new Map();
+
+  const pushMatch = (playerNick, modeRaw, goalsFor, goalsAgainst, firstHalfFor, firstHalfAgainst, kickoff) => {
+    const mode = normalizeModeKey(modeRaw);
+    const key = `${playerNick}:::${mode}`;
+    const entry = map.get(key) || [];
+    entry.push({ playerNick, mode, goalsFor, goalsAgainst, firstHalfFor, firstHalfAgainst, kickoff });
+    map.set(key, entry);
+  };
+
+  const getFirstHalfScore = (match, side) => {
+    const candidates =
+      side === 'home'
+        ? [
+            match.prevPeriodsScoresHome,
+            match.participant1?.prevPeriodsScores,
+            match.home?.prevPeriodsScores,
+            match.prevPeriodsScoresHome,
+            match.homePrevPeriodsScores,
+            match.prevPeriodsScores?.home,
+          ]
+        : [
+            match.prevPeriodsScoresAway,
+            match.participant2?.prevPeriodsScores,
+            match.away?.prevPeriodsScores,
+            match.prevPeriodsScoresAway,
+            match.awayPrevPeriodsScores,
+            match.prevPeriodsScores?.away,
+          ];
+
+    for (const cand of candidates) {
+      if (Array.isArray(cand) && cand.length) {
+        const val = Number(cand[0]);
+        if (Number.isFinite(val)) return val;
+      }
+      const num = Number(cand);
+      if (Number.isFinite(num)) return num;
+    }
+    return null;
+  };
+
+  completedMatches.forEach((match) => {
+    const { homePlayerNick, awayPlayerNick, goalsHome, goalsAway, mode, kickoff, date } = match;
+    const ts = toTimestamp(kickoff || date);
+    const fhHome = getFirstHalfScore(match, 'home');
+    const fhAway = getFirstHalfScore(match, 'away');
+    const firstHalfHome = Number.isFinite(fhHome) ? fhHome : null;
+    const firstHalfAway = Number.isFinite(fhAway) ? fhAway : null;
+    pushMatch(
+      homePlayerNick,
+      mode,
+      toNumberSafe(goalsHome),
+      toNumberSafe(goalsAway),
+      firstHalfHome,
+      firstHalfAway,
+      ts,
+    );
+    pushMatch(
+      awayPlayerNick,
+      mode,
+      toNumberSafe(goalsAway),
+      toNumberSafe(goalsHome),
+      firstHalfAway,
+      firstHalfHome,
+      ts,
+    );
+  });
+
+  const stats = [];
+  for (const [key, rows] of map.entries()) {
+    if (!rows.length) continue;
+    const sorted = rows.sort((a, b) => b.kickoff - a.kickoff);
+    const base = summarize(sorted);
+    const slices = {
+      last8: summarizeWindow(sorted, 8),
+      last20: summarizeWindow(sorted, 20),
+      last50: summarizeWindow(sorted, 50),
+      last100: summarizeWindow(sorted, 100),
+    };
+
+    const weighted30_70 = weightedAverage({ last20: 0.3, last50: 0.7 }, slices);
+    const weighted50_30_20 = weightedAverage({ last8: 0.5, last20: 0.3, last50: 0.2 }, slices);
+    const weighted33s = weightedAverage({ last20: 1 / 3, last50: 1 / 3, last100: 1 / 3 }, slices);
+    const weightedFormHeavy = weightedAverage({ last8: 0.6, last20: 0.3, last50: 0.1 }, slices);
+    const weightedExpDecay = weightedAverage(
+      { last8: 0.5, last20: 0.25, last50: 0.15, last100: 0.1 },
+      slices,
+    );
+
+    const [playerNick, mode] = key.split(':::');
+    const goalsForArr = sorted.map((r) => r.goalsFor);
+    const goalsAgainstArr = sorted.map((r) => r.goalsAgainst);
+    const totalGoalsArr = sorted.map((r) => r.goalsFor + r.goalsAgainst);
+    const medianMetrics = {
+      avgGoalsFor: median(goalsForArr),
+      avgGoalsAgainst: median(goalsAgainstArr),
+      avgTotalGoals: median(totalGoalsArr),
+      firstHalfAvgGoalsFor: median(sorted.map((r) => r.firstHalfFor ?? 0)),
+      firstHalfAvgGoalsAgainst: median(sorted.map((r) => r.firstHalfAgainst ?? 0)),
+      firstHalfAvgTotalGoals: median(
+        sorted.map((r) =>
+          Number.isFinite(r.firstHalfFor) && Number.isFinite(r.firstHalfAgainst)
+            ? r.firstHalfFor + r.firstHalfAgainst
+            : 0,
+        ),
+      ),
+    };
+    const trimmedMetrics = {
+      avgGoalsFor: trimmedMean(goalsForArr),
+      avgGoalsAgainst: trimmedMean(goalsAgainstArr),
+      avgTotalGoals: trimmedMean(totalGoalsArr),
+      firstHalfAvgGoalsFor: trimmedMean(sorted.map((r) => r.firstHalfFor ?? 0)),
+      firstHalfAvgGoalsAgainst: trimmedMean(sorted.map((r) => r.firstHalfAgainst ?? 0)),
+      firstHalfAvgTotalGoals: trimmedMean(
+        sorted.map((r) =>
+          Number.isFinite(r.firstHalfFor) && Number.isFinite(r.firstHalfAgainst)
+            ? r.firstHalfFor + r.firstHalfAgainst
+            : 0,
+        ),
+      ),
+    };
+    const varTotal = variance(totalGoalsArr);
+    const volatilityScale = 1 / (1 + varTotal);
+    stats.push({
+      playerNick,
+      mode,
+      ...base,
+      last8: slices.last8,
+      last20: slices.last20,
+      last50: slices.last50,
+      last100: slices.last100,
+      leagueAverages, // Add league averages for 2x4
+      weighted: {
+        raz_optimal: weighted30_70,
+        form_agressive: weighted50_30_20,
+        equal_weighted: weighted33s,
+        form_heavy: weightedFormHeavy,
+        exp_decay: weightedExpDecay,
+        median_based: medianMetrics,
+        trimmed_mean: trimmedMetrics,
+        volatility_adjusted: Object.fromEntries(
+          Object.entries(weighted30_70).map(([k, v]) => [k, (v ?? 0) * volatilityScale]),
+        ),
+        recency_trigger:
+          Math.abs((slices.last8.avgGoalsFor || 0) - (slices.last50.avgGoalsFor || 0)) /
+            Math.max(slices.last50.avgGoalsFor || 0.0001, 0.0001) >
+          0.2
+            ? weighted50_30_20
+            : weighted33s,
+      },
+      updatedAtIso: nowIso(),
+    });
+  }
+
+  return stats;
+};
+
+export const main = async () => {
+  const db = await getDb();
+  const matches = await db.collection('esb_matches').find({ source: 'esportsbattle' }).toArray();
+  if (!matches.length) {
+    throw new Error(`Inga matcher hittades i DB (esb_matches). Kör normalizeMatches först.`);
+  }
+
+  const stats = buildStats(matches);
+  logger.step(`Beräknade stats för ${stats.length} player/mode-kombinationer`);
+
+  await writeJson(OUTPUT_PATH, stats);
+
+ 
+  try {
+    const col = db.collection('player_stats');
+    await col.deleteMany({ source: 'esportsbattle' });
+    const docs = stats.map((s) => ({ ...s, source: 'esportsbattle' }));
+    if (docs.length) {
+      await col.insertMany(docs, { ordered: false });
+      logger.success(`Sparade ${docs.length} player_stats i DB`);
+    } else {
+      logger.info('Inga player_stats att spara i DB');
+    }
+  } finally {
+    await closeDb();
+  }
+
+  logger.success(`Sparade player_stats till ${OUTPUT_PATH}`);
+};
+
+if (isMain) {
+  main().catch((err) => {
+    logger.error('Fel i buildPlayerStats', err);
+    process.exitCode = 1;
+  });
+}
