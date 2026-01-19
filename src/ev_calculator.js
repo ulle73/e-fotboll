@@ -141,7 +141,14 @@ async function runEvCalculation() {
         matches: db.collection('unibet-matches'),
     };
 
-    const formulas = [ 'raz_optimal', 'form_agressive', 'equal_weighted', 'form_heavy', 'exp_decay', 'median_based', 'trimmed_mean', /*'volatility_adjusted',*/ 'recency_trigger', 'new_attack_defense', 'new_bayesian', 'new_momentum', 'new_quality_adjusted', 'ml_predicted' ];
+    const formulas = [
+      "raz_optimal",
+      "form_agressive" /*'equal_weighted', 'form_heavy', 'exp_decay', 'median_based', 'trimmed_mean', /*'volatility_adjusted', 'recency_trigger', 'new_attack_defense', 'new_bayesian'*/,
+      ,
+      "new_momentum",
+      "new_quality_adjusted",
+      "ml_predicted",
+    ];
     const allEvBetDocs = [];
     const selectedPlayTracker = new Map();
     const UPCOMING_WINDOW_MINUTES = 8;
