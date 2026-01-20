@@ -151,7 +151,7 @@ async function runEvCalculation() {
     ];
     const allEvBetDocs = [];
     const selectedPlayTracker = new Map();
-    const UPCOMING_WINDOW_MINUTES = 8;
+    const UPCOMING_WINDOW_MINUTES = 10;
 
     const upcomingMatches = await getUpcomingMatches(collections.matches, UPCOMING_WINDOW_MINUTES);
 
